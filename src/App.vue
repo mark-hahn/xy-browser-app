@@ -1,60 +1,61 @@
+<style>
+  html { box-sizing: border-box; }
+  *, *:before, *:after { box-sizing: inherit; }
+  font-family: 'Avenir', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+</style>
+
+<style lang="less" scoped>
+  #app { margin: 30px; }
+  img { height:65px }
+  #page-hdr {
+    margin:30px 10px;
+    float:right;
+    display: inline-block;
+    font-weight:bold;
+    font-size:25px;
+  }
+  #nav-bar {
+    padding:10px;
+    position:relative;
+    top:-10px;
+    width:100%;
+    border:1px solid black;
+    .nav-btn {
+      color:black;
+      display: inline-block;
+    }
+  }
+</style>
+
 <template>
   <div id="app">
-    <img src="./assets/eridien-logo.jpg">
-    <h1>{{ msg }}</h1>
-    <h2>Essential Links</h2>
-    <ul>
-      <li><a href="https://vuejs.org" target="_blank">Core Docs</a></li>
-      <li><a href="https://forum.vuejs.org" target="_blank">Forum</a></li>
-      <li><a href="https://gitter.im/vuejs/vue" target="_blank">Gitter Chat</a></li>
-      <li><a href="https://twitter.com/vuejs" target="_blank">Twitter</a></li>
-    </ul>
-    <h2>Ecosystem</h2>
-    <ul>
-      <li><a href="http://router.vuejs.org/" target="_blank">vue-router</a></li>
-      <li><a href="http://vuex.vuejs.org/" target="_blank">vuex</a></li>
-      <li><a href="http://vue-loader.vuejs.org/" target="_blank">vue-loader</a></li>
-      <li><a href="https://github.com/vuejs/awesome-vue" target="_blank">awesome-vue</a></li>
-    </ul>
+    <div>
+      <img src="src/assets/eridien-logo.jpg">
+      <div id="page-hdr"> XY {{pagehdr}} </div>
+      <div id="nav-bar">
+        <router-link to="/platform">
+          <div class="nav-btn">Platform</div>
+        </router-link>
+        <router-link to="/apps">
+          <div class="nav-btn">Apps</div>
+        </router-link>
+        <router-link to="/network">
+          <div class="nav-btn">Network</div>
+        </router-link>
+    </div>
+    <router-view></router-view>
   </div>
 </template>
 
 <script>
-export default {
-  name: 'app',
-  data () {
-    return {
-      msg: 'Welcome to Your Vue.js ple'
+  export default {
+    name: 'app',
+    data () {
+      return {
+        'pagehdr': 'Platform'
+      }
     }
   }
-}
 </script>
-
-<style>
-#app {
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-  margin-top: 60px;
-}
-
-h1, h2 {
-  font-weight: normal;
-}
-
-ul {
-  list-style-type: none;
-  padding: 0;
-}
-
-li {
-  display: inline-block;
-  margin: 0 10px;
-}
-
-a {
-  color: #42b983;
-}
-</style>
