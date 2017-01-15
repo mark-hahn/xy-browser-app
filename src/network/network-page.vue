@@ -11,9 +11,9 @@
 <script>
   export default {
     name: 'network-page',
-    data () {
+    data: function () {
       return {
-        msg: 'Welcome to network-page'
+        hdrName: 'Network'
       }
     }
   }

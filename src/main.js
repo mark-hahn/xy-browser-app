@@ -5,15 +5,15 @@ import netComp   from "./network/network-page.vue"
 
 Vue.use(VueRouter);
 
-
+// debug
 const Platform = { template: '<div>Platform</div>' }
 const Apps     = { template: '<div>Apps</div>' }
-const routes = [
-  {path: '/platform',  component: Platform},
-  {path: '/apps',      component: Apps},
-  {path: '/network',   component: netComp}
-]
-const router = new VueRouter({routes})
+
+const router = new VueRouter({ routes: [
+  {path: '/platform',  component: Platform, meta:{name:'Platform'}},
+  {path: '/apps',      component: Apps, meta:{name:'Apps'}},
+  {path: '/network',   component: netComp, meta:{name:'Network'}}
+]});
 
 new Vue({
   router,

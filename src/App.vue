@@ -2,7 +2,7 @@
   <div id="app">
     <div>
       <img src="src/assets/eridien-logo.jpg">
-      <div id="page-hdr"> XY {{curPage}} </div>
+      <div id="page-title"> XY {{$route.meta.name}} </div>
       <div id="nav-bar">
         <router-link class="nav-btn" to="/platform">
           <a>Platform</a>
@@ -14,7 +14,7 @@
           <a>Network</a>
         </router-link>
     </div>
-    <router-view></router-view>
+    <router-view ref="routerView"></router-view>
   </div>
 </template>
 
@@ -28,12 +28,12 @@
 </style>
 
 <style lang="less" scoped>
-  #app { margin: 30px; }
+  #app { margin: 20px; }
   img {
     display: inline-block;
     height:65px
   }
-  #page-hdr {
+  #page-title {
     position:relative;
     top:-18px;
     margin-left:130px;
@@ -71,8 +71,8 @@
 <script>
   export default {
     name: 'app',
-    data () { return {
+    data() { return {
       curPage: 'Platform'
-    }}
+    }},
   }
 </script>
