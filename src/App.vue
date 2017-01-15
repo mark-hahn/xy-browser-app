@@ -35,8 +35,8 @@
   }
   #page-title {
     position:relative;
-    top:-18px;
-    margin-left:130px;
+    top:-19px;
+    margin-left:40px;
     display: inline-block;
     font-weight:bold;
     font-size:25px;
