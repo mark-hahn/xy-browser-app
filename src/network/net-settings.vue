@@ -20,7 +20,7 @@
   <div id="top" class="network-page-pane">
     <div class="network-page-pane-hdr"> {{msg}} </div>
     <div class="network-page-pane-body">
-      <form action="#" v-show="isVisible">
+      <form action="" v-show="isVisible">
         <h4>XY AP settings</h4>
         <table>
           <tr> <th>SSID</th> <th>Password</th> </tr>
@@ -37,8 +37,8 @@
             <td><input type="password" v-model.trim="ssid.password">
           </tr>
         </table>
-        <button @click="submit()"> Save </button>
-        <button @click="refresh()" style="margin-left:20px">Reset</button>
+        <button type="button" @click="submit()">Save</button>
+        <button type="button" @click="refresh()">Reset</button>
         <div class="err-list" v-if="errors.length>0">
           <ul>
             <li v-for="msg of errors"> {{msg}} </li>
@@ -75,16 +75,13 @@
     },
     methods: {
       valSsid: function(newSsid) {
-        if(this.hasSsidErr) return;
-        if(newSsid === "") {
+        if(!this.hasSsidErr && newSsid === "") {
           this.errors.push("XY AP SSID is required");
           this.hasSsidErr = true;
-          return false;
         };
-        return true;
       },
       valPwd: function(newPwd) {
-        if(this.hasPwdErr) return;
+        if(!this.hasSsidErr && this.hasPwdErr) return;
         if(newPwd === "" || newPwd.length < 8) {
           this.errors.push("XY AP Password must be 8 chars or more");
           this.hasPwdErr = true;
