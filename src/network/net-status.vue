@@ -34,10 +34,10 @@
         connSsid: ''
       }
     },
-    mounted: function()  {
+    created: function()  {
       axios.get(window.dbgHost + '/ajax/wifi-status')
       .then( (response) => {
-        console.log('response', response.data[0]);
+        console.log('response data', response.data[0]);
         this.status = response.data[0];
         this.msg = "Network status"
         this.isVisible = true;
@@ -49,7 +49,6 @@
           (this.status.staSsid.length > 0 &&
            this.status.staIp !== '0.0.0.0' &&
            this.status.staSsid !== '0.0.0.0');
-        connSsid
       })
       .catch(function (error) {
         console.log('error', error);

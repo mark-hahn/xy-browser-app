@@ -11,7 +11,6 @@
     }
     &-body {
       max-width: 640px;
-      padding:10px;
       margin-top:10px;
     }
   }
