@@ -3,14 +3,14 @@
 <style lang="less">
   .network-page-pane {
     border: 1px solid black;
-    max-width: 600px;
+    max-width: 650px;
     padding:10px;
     margin-bottom:10px;
     &-hdr {
       font-weight: bold;
     }
     &-body {
-      max-width: 580px;
+      max-width: 640px;
       padding:10px;
       margin-top:10px;
     }

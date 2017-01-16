@@ -42,7 +42,7 @@
     font-size:25px;
   }
   #nav-bar {
-    max-width: 595px;
+    max-width: 650px;
     padding:10px;
     position:relative;
     top:-10px;
