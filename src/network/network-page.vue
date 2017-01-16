@@ -32,9 +32,5 @@
   export default {
     name: 'network-page',
     components: {netStatus, netSettings, netScan},
-    data: function () {
-      return {
-      }
-    }
   }
 </script>

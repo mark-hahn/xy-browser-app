@@ -12,7 +12,7 @@
 
 <script>
   export default {
-    name: 'net-scan',
+    name: 'NetScan',
     data: function () {
       return {
         msg: "Scanning WiFi access points ..."

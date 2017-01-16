@@ -25,6 +25,7 @@
 <script>
   import axios from 'axios'
   export default {
+    name:'NetStatus',
     data: function () {
       return {
         status: { apSsid:'', apIp:'', staIp:'', staSsid:'' },
