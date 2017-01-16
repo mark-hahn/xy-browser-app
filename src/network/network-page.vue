@@ -1,19 +1,20 @@
 
-
+<!-- global -->
 <style lang="less">
   .network-page-pane {
     border: 1px solid black;
-    width: 600px;
+    max-width: 600px;
     padding:10px;
     margin-bottom:10px;
+    &-hdr {
+      font-weight: bold;
+    }
+    &-body {
+      max-width: 580px;
+      padding:10px;
+      margin-top:10px;
+    }
   }
-  .network-page-pane-msg {
-    font-weight: bold;
-  }
-</style>
-
-<style lang="less" scoped>
-
 </style>
 
 <template lang="html">
@@ -30,11 +31,10 @@
   import netScan     from "./net-scan.vue"
 
   export default {
-    components: {netStatus, netSettings, netScan},
     name: 'network-page',
+    components: {netStatus, netSettings, netScan},
     data: function () {
       return {
-        hdrName: 'Network'
       }
     }
   }

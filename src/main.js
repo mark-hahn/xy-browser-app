@@ -5,6 +5,8 @@ import netComp   from "./network/network-page.vue"
 
 Vue.use(VueRouter);
 
+window.dbgHost = 'http://192.168.1.244';
+
 // debug
 const Platform = { template: '<div>Platform</div>' }
 const Apps     = { template: '<div>Apps</div>' }

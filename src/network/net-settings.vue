@@ -4,7 +4,9 @@
 
 <template lang="html">
   <div id="top" class="network-page-pane">
-    <div class="network-page-pane-msg"> {{msg}} </div>
+    <div class="network-page-pane-hdr"> {{msg}} </div>
+    <div class="network-page-pane-body">
+    </div>
   </div>
 </template>
 
