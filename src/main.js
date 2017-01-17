@@ -4,10 +4,12 @@ import VueRouter from 'vue-router'
 import netComp   from "./network/network-page.vue"
 
 Vue.use(VueRouter);
+window.eventBus = new Vue();
 
-window.dbgHost = 'http://192.168.1.244';
+window.dbgHost = window.location.port === '9000' ?
+                    'http://192.168.1.244' : '';
 
-// debug
+// TODO
 const Platform = { template: '<div>Platform</div>' }
 const Apps     = { template: '<div>Apps</div>' }
 

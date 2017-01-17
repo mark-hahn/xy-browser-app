@@ -3,9 +3,7 @@
   table {
     margin-top:5px;
     th { text-align: left; }
-    td {
-      padding:3px 5px;
-    }
+    td { padding:3px 5px; }
   }
   button {
     margin: 0 15px;
@@ -64,6 +62,7 @@
       }
     },
     created: function()  {
+
       this.$watch('ssids', function(newSsids) {
         this.errors     = [];
         this.hasSsidErr = false;
@@ -71,6 +70,22 @@
         this.valSsid(newSsids[0].apSsid);
         this.valPwd(newSsids[0].apPwd);
       }, {deep:true});
+
+      window.eventBus.$on('ssidAdd', (ssidName) => {
+        console.log("ssidName", ssidName);
+        let ssids = this.ssids.slice(1);
+        for(let ssid of ssids) if(ssid.ssid === ssidName) return;
+        for(let ssid of ssids) {
+          console.log("ssid", ssid);
+          if(ssid.ssid === ssidName) return;
+          if(ssid.ssid.length === 0) {
+            ssid.ssid     = ssidName;
+            ssid.password = "";
+            return;
+          }
+        }
+      });
+
       this.refresh();
     },
     methods: {
@@ -102,7 +117,13 @@
         });
       },
       submit: function() {
-
+        axios.post(window.dbgHost + '/ajax/set-eeprom', this.ssids)
+        .then(function (response) {
+          console.log(response);
+        })
+        .catch(function (error) {
+          console.log(error);
+        });
       }
     }
   }
