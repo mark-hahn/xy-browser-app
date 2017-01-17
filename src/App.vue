@@ -6,38 +6,9 @@
   -moz-osx-font-smoothing: grayscale;
 </style>
 
-<style scoped>
-  #logo {
-    cursor: pointer;
-  }
-</style>
-
-<template>
-  <div id="app">
-    <div>
-      <img id="logo" @click="home()" src="src/assets/eridien-logo.jpg">
-      <div id="page-title"> XY {{$route.meta.name}} </div>
-      <div id="nav-bar">
-        <router-link class="nav-btn" to="/scribe">
-          <a>Scribe</a>
-        </router-link>
-        <router-link class="nav-btn" to="/Terminal">
-          <a>Terminal</a>
-        </router-link>
-        <router-link class="nav-btn" to="/apps">
-          <a>Apps</a>
-        </router-link>
-        <router-link class="nav-btn" to="/network">
-          <a>Network</a>
-        </router-link>
-    </div>
-    <router-view ref="routerView"></router-view>
-  </div>
-</template>
-
-
 <style lang="less" scoped>
   #app { margin: 20px; }
+  #logo { cursor: pointer; }
   img {
     display: inline-block;
     height:65px
@@ -76,6 +47,29 @@
     }
   }
 </style>
+
+<template>
+  <div id="app">
+    <div>
+      <img id="logo" @click="home()" src="src/assets/eridien-logo.jpg">
+      <div id="page-title"> XY {{$route.meta.name}} </div>
+      <div id="nav-bar">
+        <router-link class="nav-btn" to="/scribe">
+          <a>Scribe</a>
+        </router-link>
+        <router-link class="nav-btn" to="/Terminal">
+          <a>Terminal</a>
+        </router-link>
+        <router-link class="nav-btn" to="/apps">
+          <a>Apps</a>
+        </router-link>
+        <router-link class="nav-btn" to="/network">
+          <a>Network</a>
+        </router-link>
+    </div>
+    <router-view ref="routerView"></router-view>
+  </div>
+</template>
 
 
 <script>

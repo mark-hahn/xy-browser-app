@@ -93,6 +93,8 @@
         }
       });
 
+      window.eventBus.$on('xyReconnected', () => {this.refresh();});
+
       this.refresh();
     },
     methods: {

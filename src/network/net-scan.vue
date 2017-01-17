@@ -19,7 +19,7 @@
     <div class="network-page-pane-hdr">
       {{msg}}
       <button type="button" @click="refresh()" v-bind:disabled="isRstDisabled">
-        Reset
+        Refresh
       </button>
     </div>
     <div class="network-page-pane-body" v-if="isVisible">
@@ -49,9 +49,9 @@
       }
     },
     created: function() {
+      window.eventBus.$on('xyReconnected', () => {this.refresh()});
       this.refresh();
-      console.log('dfg',this.msg);
-     },
+    },
     methods: {
       refresh: function() {
         this.isRstDisabled = true;
