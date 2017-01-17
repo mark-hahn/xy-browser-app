@@ -6,17 +6,19 @@ import netComp   from "./network/network-page.vue"
 Vue.use(VueRouter);
 window.eventBus = new Vue();
 
-window.dbgHost = window.location.port === '9000' ?
-                    'http://192.168.1.244' : '';
+window.dbgHost = window.location.port === '8080' ? 'http://192.168.1.244' : '';
 
 // TODO
-const Platform = { template: '<div>Platform</div>' }
+const Scribe   = { template: '<div>Scribe</div>' }
+const Terminal = { template: '<div>Terminal</div>' }
 const Apps     = { template: '<div>Apps</div>' }
 
 const router = new VueRouter({ routes: [
-  {path: '/platform',  component: Platform, meta:{name:'Platform'}},
-  {path: '/apps',      component: Apps, meta:{name:'Apps'}},
-  {path: '/network',   component: netComp, meta:{name:'Network'}}
+  {path: '/', redirect: '/scribe'},
+  {path: '/scribe',    component: Scribe,   meta:{name:'Scribe'}},
+  {path: '/terminal',  component: Terminal, meta:{name:'Terminal'}},
+  {path: '/apps',      component: Apps,     meta:{name:'Apps'}},
+  {path: '/network',   component: netComp,  meta:{name:'Network'}}
 ]});
 
 new Vue({

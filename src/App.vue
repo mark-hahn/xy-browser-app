@@ -1,11 +1,28 @@
+<style>
+  html { box-sizing: border-box; }
+  *, *:before, *:after { box-sizing: inherit; }
+  font-family: 'Avenir', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+</style>
+
+<style scoped>
+  #logo {
+    cursor: pointer;
+  }
+</style>
+
 <template>
   <div id="app">
     <div>
-      <img src="src/assets/eridien-logo.jpg">
+      <img id="logo" @click="home()" src="src/assets/eridien-logo.jpg">
       <div id="page-title"> XY {{$route.meta.name}} </div>
       <div id="nav-bar">
-        <router-link class="nav-btn" to="/platform">
-          <a>Platform</a>
+        <router-link class="nav-btn" to="/scribe">
+          <a>Scribe</a>
+        </router-link>
+        <router-link class="nav-btn" to="/Terminal">
+          <a>Terminal</a>
         </router-link>
         <router-link class="nav-btn" to="/apps">
           <a>Apps</a>
@@ -18,14 +35,6 @@
   </div>
 </template>
 
-
-<style>
-  html { box-sizing: border-box; }
-  *, *:before, *:after { box-sizing: inherit; }
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-</style>
 
 <style lang="less" scoped>
   #app { margin: 20px; }
@@ -73,7 +82,12 @@
   export default {
     name: 'app',
     data() { return {
-      curPage: 'Platform'
+      curPage: 'Scribe'
     }},
+    methods: {
+      home: function()  {
+        window.location = '/';
+      }
+    }
   }
 </script>

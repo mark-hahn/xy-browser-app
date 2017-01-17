@@ -7,6 +7,7 @@
   }
   button {
     margin: 0 15px;
+    cursor: pointer;
   }
   .err-list{
     margin-top:5px;
@@ -19,7 +20,7 @@
     <div class="network-page-pane-hdr"> {{msg}} </div>
     <div class="network-page-pane-body">
       <form action="" v-show="isVisible">
-        <h4>XY AP settings</h4>
+        <h4>XY Access Point</h4>
         <table>
           <tr> <th>SSID</th> <th>Password</th> </tr>
           <tr>
@@ -27,7 +28,7 @@
             <td><input type="password" v-model.trim="ssids[0].apPwd">
           </tr>
         </table>
-        <h4>Other AP settings</h4>
+        <h4>Access Point Logins</h4>
         <table>
           <tr> <th>SSID</th> <th>Password</th> </tr>
           <tr v-for="(ssid,idx) of ssids" v-if="idx>0">
@@ -35,8 +36,12 @@
             <td><input type="password" v-model.trim="ssid.password">
           </tr>
         </table>
-        <button type="button" @click="submit()">Save</button>
-        <button type="button" @click="refresh()">Reset</button>
+        <button type="button" @click="submit()"  v-bind:disabled="isSavDisabled">
+          Save
+        </button>
+        <button type="button" @click="refresh()" v-bind:disabled="isRstDisabled">
+          Reset
+        </button>
         <div class="err-list" v-if="errors.length>0">
           <ul>
             <li v-for="msg of errors"> {{msg}} </li>
@@ -56,6 +61,8 @@
         msg: "Loading WiFi Settings ...",
         ssids: [{},{},{},{},{}],
         isVisible: false,
+        isSavDisabled: false,
+        isRstDisabled: false,
         errors: [],
         hasSsidErr: false,
         hasPwdErr: false
@@ -105,10 +112,12 @@
         return true;
       },
       refresh: function() {
+        this.isRstDisabled = true;
+        setTimeout(()=>{this.isRstDisabled=false}, 300);
         axios.get(window.dbgHost + '/ajax/get-eeprom')
         .then( (response) => {
           console.log('response data', response.data);
-          this.msg = "WiFi Settings."
+          this.msg = "WiFi Settings"
           this.ssids = response.data;
           this.isVisible = true;
         })
@@ -117,13 +126,17 @@
         });
       },
       submit: function() {
-        axios.post(window.dbgHost + '/ajax/set-eeprom', this.ssids)
-        .then(function (response) {
-          console.log(response);
-        })
-        .catch(function (error) {
-          console.log(error);
-        });
+        this.isSavDisabled = true;
+        setTimeout(()=>{this.isSavDisabled=false}, 300);
+        if(this.errors.length == 0) {
+          axios.post(window.dbgHost + '/ajax/set-eeprom', this.ssids)
+          .then(function (response) {
+            console.log(response);
+          })
+          .catch(function (error) {
+            console.log(error);
+          });
+        }
       }
     }
   }
