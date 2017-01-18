@@ -133,10 +133,10 @@
         if(this.errors.length == 0) {
           axios.post(window.dbgHost + '/ajax/set-eeprom', this.ssids)
           .then(function (response) {
-            console.log(response);
+            console.log('wifi settings saved:', response);
           })
           .catch(function (error) {
-            console.log(error);
+            console.log('wifi settings save error:', error);
           });
         }
       }

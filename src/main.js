@@ -6,7 +6,7 @@ import netComp   from "./network/network-page.vue"
 Vue.use(VueRouter);
 window.eventBus = new Vue();
 
-window.dbgHost = window.location.port === '8080' ? 'http://192.168.1.244' : '';
+window.dbgHost = window.location.port === '8080' ? 'http://192.168.1.243' : '';
 
 // TODO
 const Scribe   = { template: '<div>Scribe</div>' }
