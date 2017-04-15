@@ -9,7 +9,7 @@
     <div class="network-page-pane-hdr"> {{msg}} </div>
     <div class="network-page-pane-body">
       <div id="noXyConn" v-if="noXyConn">
-        You have no connection to XY.  
+        You have no connection to XY.
         If this persists unplug and replug XY and try again.
       </div>
       <ul v-show="isVisible">
@@ -57,7 +57,7 @@
     },
     methods: {
       refresh: function() {
-        axios.get(window.dbgHost + '/ajax/wifi-status', {'timeout': 1000})
+        axios.get(window.dbgHost + '/ajax/wifi-status', {'timeout': 3000})
         .then( (response) => {
           if(this.noXyConn) window.eventBus.$emit('xyReconnected');
           this.noXyConn = false;
