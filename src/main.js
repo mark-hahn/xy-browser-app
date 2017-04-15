@@ -21,14 +21,13 @@ const router = new VueRouter({ routes: [
   {path: '/network',   component: netComp,    meta:{name:'Network'}}
 ]});
 
-router.afterEach((to, from) => {
-  if(from.path == "/ZDemo") {
-    console.log("rounter from", from, "to", to);
-  }
-});
-
 new Vue({
   router,
   el: '#app',
-  render: h => h(App)
+  render: h => h(App),
+  mounted: function() {
+    router.afterEach((to, from) => {
+      this.$emit("navBarChange", to, from);
+    });
+  }
 })

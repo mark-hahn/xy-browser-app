@@ -18,12 +18,66 @@
 
 <style lang="less" scoped>
   #log {height:20px;}
+  #canvas {margin-top: 20px;}
+  .slider {
+    display:inline-block;
+    position: relative;
+    top: 10px;
+  }
+  #left-controls {
+    display: inline-block;
+    width:320px;
+  }
+  #right-controls {
+    display: inline-block;
+    width:300px;
+    margin-left:25px;
+  }
+  .arrow {
+    position:relative;
+    top: 3px;
+    font-size:30px;
+  }
+  #undo-label-line {
+    position:relative;
+    top: 10px;
+    left:5px;
+  }
+  #undo-labl{
+    width:100px;
+    display: inline-block;
+    float:left;
+  }
+  #redo-labl{
+    width:100px;
+    display: inline-block;
+    float:right;
+  }
 </style>
 
 <template lang="html">
   <div>
+    <div id="left-controls">
+      <div>
+        Adjust the low and high parameters for the <br>
+        best image with the fewest lines ...
+      </div>
+      <div>
+        Low: <vue-slider class="slider" v-bind="sliderLow" v-model="lowThresh"></vue-slider>
+      </div>
+      <div>
+        High: <vue-slider class="slider" v-bind="sliderHigh" v-model="highThresh"></vue-slider>
+      </div>
+    </div>
+    <div id="right-controls">
+      <div id="undo-label-line">
+        <div id="undo-labl"> Undo<span class="arrow">&#x2190;</span> </div>
+        <div id="redo-labl"> <span class="arrow">&#x2192;</span> Redo</div>
+      </div>
+      <vue-slider class="slider" v-bind="sliderUndo" v-model="undoPos"></vue-slider>
+    </div>
     <video id="webcam" width="640" height="480" style="display:none;"></video>
-    <div style=" width:640px;height:480px;margin: 10px auto;">
+    <div style=" width:640px;height:480px;">
         <canvas id="canvas" width="640" height="480"></canvas>
         <div id="no_rtc" class="alert alert-error" style="display:none;"></div>
         <div id="log" class="alert alert-info"></div>
@@ -32,13 +86,37 @@
 </template>
 
 <script>
+  import vueSlider from 'vue-slider-component';
+
   export default {
     name: 'zdemo',
-    components: {},
-
+    components: {vueSlider},
+    data: function() {
+  		return {
+        lowThresh: 0,
+        highThresh: 0,
+        undoPos: 0,
+        sliderLow: {
+					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 255, interval: 1,
+					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
+          tooltip: 'hover', piecewise: false
+				},
+        sliderHigh: {
+					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 255, interval: 1,
+					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
+					tooltip: 'hover', piecewise: false
+				},
+        sliderUndo: {
+					value: 20, width: 275, height: 8, dotSize: 20, min: 0, max: 255, interval: 1,
+					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
+					tooltip: 'hover', piecewise: false
+				}
+      }
+  	},
     mounted: function () {
       var video  = document.getElementById('webcam');
       var canvas = document.getElementById('canvas');
+      var gui, options, ctx, canvasWidth, canvasHeight, img_u8;
       try {
         compatibility.getUserMedia({video: true}, function(stream) {
           try {
@@ -46,7 +124,6 @@
           } catch (error) {
             video.src = stream;
           }
-
           video.addEventListener('canplay', canPlayListener, true);
         }, function (error) {
             document.getElementById('webcam').style.display = 'none';
@@ -62,17 +139,8 @@
             document.getElementById('log').innerHTML = '<h4>WebRTC not available.</h4>';
             document.getElementById('no_rtc').style.display = 'block';
       }
+      // var stat = new profiler();
 
-      var stat = new profiler();
-
-      var gui,options,ctx,canvasWidth,canvasHeight;
-      var img_u8;
-
-      var demo_opt = function(){
-          this.blur_radius = 2;
-          this.low_threshold = 20;
-          this.high_threshold = 50;
-      }
       function canPlayListener() {
         video.removeEventListener('canplay', canPlayListener);
         setTimeout(function() {
@@ -91,39 +159,34 @@
 
           img_u8 = new jsfeat.matrix_t(640, 480, jsfeat.U8_t | jsfeat.C1_t);
 
-          options = new demo_opt();
-          gui = new dat.GUI();
-
-          gui.add(options, 'blur_radius', 0, 4).step(1);
-          gui.add(options, 'low_threshold', 1, 127).step(1);
-          gui.add(options, 'high_threshold', 1, 127).step(1);
-
-          stat.add("grayscale");
-          stat.add("gauss blur");
-          stat.add("canny edge");
+          // stat.add("grayscale");
+          // stat.add("gauss blur");
+          // stat.add("canny edge");
       }
 
       function tick() {
           compatibility.requestAnimationFrame(tick);
-          stat.new_frame();
+          // stat.new_frame();
           if (video.readyState === video.HAVE_ENOUGH_DATA) {
               ctx.drawImage(video, 0, 0, 640, 480);
               var imageData = ctx.getImageData(0, 0, 640, 480);
 
-              stat.start("grayscale");
+              // stat.start("grayscale");
               jsfeat.imgproc.grayscale(imageData.data, img_u8.data);
-              stat.stop("grayscale");
+              // stat.stop("grayscale");
 
-              var r = options.blur_radius|0;
-              var kernel_size = (r+1) << 1;
+              var kernel_size = 16;
 
-              stat.start("gauss blur");
+              // stat.start("gauss blur");
               jsfeat.imgproc.gaussian_blur(img_u8, img_u8, kernel_size, 0);
-              stat.stop("gauss blur");
+              // stat.stop("gauss blur");
 
-              stat.start("canny edge");
-              jsfeat.imgproc.canny(img_u8, img_u8, options.low_threshold|0, options.high_threshold|0);
-              stat.stop("canny edge");
+              var low_threshold  = 20;
+              var high_threshold = 50;
+
+              // stat.start("canny edge");
+              jsfeat.imgproc.canny(img_u8, img_u8, low_threshold|0, high_threshold|0);
+              // stat.stop("canny edge");
 
               // render result back to canvas
               var data_u32 = new Uint32Array(imageData.data.buffer);
@@ -139,11 +202,14 @@
               // document.getElementById('log').innerHTML = stat.log();
           }
       }
-    }, // end mounted:
-
-    unmounted: function() {
-      console.log("unmounted");
-
-    } // end unmounted:
+      this.$root.$on("navBarChange", function(to, from) {
+        console.log(to,from);
+        if(from.path == 'ZDemo') {
+          gui.close();
+          video.pause();
+          video.src=null;
+        }
+      });
+    } // end mounted:
   }
 </script>
