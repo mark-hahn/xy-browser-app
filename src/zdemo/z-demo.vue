@@ -140,6 +140,7 @@
 
   var video, canvas, ctx, img_u8, imageData;
   var lines = [];
+  var data_u32;
 
   export default {
     name: 'zdemo',
@@ -217,7 +218,7 @@
                              low_threshold|0, high_threshold|0);
 
         // render result back to canvas
-        var data_u32 = new Uint32Array(imageData.data.buffer);
+        data_u32 = new Uint32Array(imageData.data.buffer);
         var alpha = (0xff << 24);
         var i = img_u8.cols*img_u8.rows, pix = 0;
                   while(--i >= 0) {
@@ -277,8 +278,9 @@
       doneClick: function() {
       },
       maskClick: function() {},
+
       process: function() {
-        return;
+        // return;
         var get3by3 = (x,y) => {
           var i = y*640+x;
           return [img_u8.data[i-641], img_u8.data[i-640], img_u8.data[i-639],
@@ -287,27 +289,45 @@
         }
         var singleNeighbor = (x,y) => {
           var idx, count = 0;
-          if(img_u8.data[y*640+x]<255) return;
+          // if(img_u8.data[y*640+x] < 255) return;
           var grid = get3by3(x,y);
           for (let i of [0,1,2,3,5,6,7,8]) {
-            if(grid[i] == 255) count++;
-            idx = i;
+            if(grid[i] == 255) {
+              if(++count > 2) break;
+              idx = i;
+            }
           }
-          if(count != 1) return -1;
-          return idx;
+          if(count == 1 || count == 2) return idx;
+          return -1;
         }
-        var i, pix, data_u32 = new Uint32Array(imageData.data.buffer);
-        for(let x=0; x < 640; x++)
-          for(let y=0; y < 480; y++)
-            if(singleNeighbor(x,y) > -1) {
-              data_u32[y*640+x] = 0xff0000ff;
+        var x = 0, y = 0, lineCnt = 0;
+        var lines = [];
+        while(true) {
+          if(img_u8.data[y*640+x] == 255) {
+            while(x > -1) {
               img_u8.data[y*640+x] = 128;
+              lines[lineCnt++] = [x,y];
+              switch(singleNeighbor(x,y)) {
+                case 0: x--; y--; break;
+                case 1:      y--; break;
+                case 2: x++; y--; break;
+                case 3: x--;      break;
+                case 5: x++;      break;
+                case 6: x--; y++; break;
+                case 7:      y++; break;
+                case 8: x++; y++; break;
+                default: x = -1;;
+              }
             }
-        for(let x=0; x < 640; x++)
-          for(let y=0; y < 480; y++)
-            if(singleNeighbor(x,y) > -1) {
-              data_u32[y*640+x] = 0xff00ff00;
-            }
+          } else {
+            x++; y++;
+          }
+          if(x == -1) break;
+        }
+        for(let line of lines)  {
+          [x,y] = line;
+          data_u32[y*640+x] = 0xff0000ff;
+        }
         ctx.putImageData(imageData, 0, 0);
       }
     }
