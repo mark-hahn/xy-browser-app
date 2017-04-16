@@ -138,30 +138,27 @@
 <script>
   import vueSlider from 'vue-slider-component';
 
+  var video, canvas, ctx, img_u8, imageData;
+
   export default {
     name: 'zdemo',
     components: {vueSlider},
     data: function() {
   		return {
-        lowThresh: 0,
-        highThresh: 0,
+        lowThresh: 20,
+        highThresh: 50,
         undoPos: 0,
         undoCount: 0,
         capturing: true,
         processing: false,
         freezeBtnText: "Freeze",
-        video: null,
-        canvas: null,
-        ctx: null,
-        img_u8: null,
-        imageData: null,
         sliderLow: {
 					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 100, interval: 1,
 					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
           tooltip: 'hover', piecewise: false
 				},
         sliderHigh: {
-					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 100, interval: 1,
+					value: 50, width: 255, height: 8, dotSize: 20, min: 0, max: 100, interval: 1,
 					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
 					tooltip: 'hover', piecewise: false
 				},
@@ -174,83 +171,73 @@
       }
   	},
     mounted: function () {
-      this.video  = document.getElementById('webcam');
-      this.canvas = document.getElementById('canvas');
+      video  = document.getElementById('webcam');
+      canvas = document.getElementById('canvas');
       try {
         compatibility.getUserMedia({video: true}, (stream) => {
           try {
-            this.video.src = compatibility.URL.createObjectURL(stream);
+            video.src = compatibility.URL.createObjectURL(stream);
           } catch (error) {
-            this.video.src = stream;
+            video.src = stream;
           }
-          this.video.addEventListener('canplay', this.canPlayListener, true);
+          video.addEventListener('canplay', this.canPlayListener, true);
         }, function (error) {
-            document.getElementById('webcam').style.display = 'none';
-            document.getElementById('canvas').style.display = 'none';
-            document.getElementById('log').style.display = 'none';
-            document.getElementById('no_rtc').style.display = 'none';
-            document.getElementById('log').innerHTML = '<h4>WebRTC not available.</h4>';
-            document.getElementById('no_rtc').style.display = 'block';
+          console.log("WebRTC not available");
         });
       } catch (error) {
-            document.getElementById('canvas').style.display = 'none';
-            document.getElementById('log').style.display = 'none';
-            document.getElementById('log').innerHTML = '<h4>WebRTC not available.</h4>';
-            document.getElementById('no_rtc').style.display = 'block';
+        console.log("WebRTC not available");
       }
-      // var stat = new profiler();
-
       this.$root.$on("navBarChange", function(to, from) {
-        console.log(to,from);
-        if(from.path == 'ZDemo') {
-          this.video.pause();
-          this.video.src=null;
-        }
+        if(from.path == 'ZDemo') video.pause();
+        if(to.path   == 'ZDemo') video.play();
       });
     }, // end mounted:
     methods: {
       demo_app: function () {
-        this.ctx = this.canvas.getContext('2d');
-        this.ctx.fillStyle = "rgb(0,255,0)";
-        this.ctx.strokeStyle = "rgb(0,255,0)";
-        this.img_u8 = new jsfeat.matrix_t(640, 480, jsfeat.U8_t | jsfeat.C1_t);
+        ctx = canvas.getContext('2d');
+        ctx.fillStyle = "rgb(0,255,0)";
+        ctx.strokeStyle = "rgb(0,255,0)";
+        img_u8 = new jsfeat.matrix_t(640, 480, jsfeat.U8_t | jsfeat.C1_t);
       },
       processFrame: function () {
-        this.ctx.drawImage(this.video, 0, 0, 640, 480);
-        this.imageData = this.ctx.getImageData(0, 0, 640, 480);
+        ctx.drawImage(video, 0, 0, 640, 480);
+        imageData = ctx.getImageData(0, 0, 640, 480);
 
-        jsfeat.imgproc.grayscale(this.imageData.data, this.img_u8.data);
+        jsfeat.imgproc.grayscale(imageData.data, img_u8.data);
 
-        var kernel_size = 16; // (radius+1)^2
-        jsfeat.imgproc.gaussian_blur(this.img_u8, this.img_u8, kernel_size, 0);
+        var kernel_size = 4; // (radius+1)^2
+        jsfeat.imgproc.gaussian_blur(img_u8, img_u8, kernel_size, 0);
 
         var low_threshold  = (this.lowThresh  > this.highThresh ?
                               this.highThresh : this.lowThresh);
         var high_threshold  = (this.lowThresh > this.highThresh ?
                               this.lowThresh  : this.highThresh);
-        jsfeat.imgproc.canny(this.img_u8, this.img_u8,
+        jsfeat.imgproc.canny(img_u8, img_u8,
                              low_threshold|0, high_threshold|0);
 
         // render result back to canvas
-        var data_u32 = new Uint32Array(this.imageData.data.buffer);
+        var data_u32 = new Uint32Array(imageData.data.buffer);
         var alpha = (0xff << 24);
-        var i = this.img_u8.cols*this.img_u8.rows, pix = 0;
-        while(--i >= 0) {
-            pix = this.img_u8.data[i];
-            data_u32[i] = alpha | (pix << 16) | (pix << 8) | pix;
-        }
-        this.ctx.putImageData(this.imageData, 0, 0);
+        var i = img_u8.cols*img_u8.rows, pix = 0;
+                  while(--i >= 0) {
+                      pix = img_u8.data[i];
+                      if(pix>0)
+                        data_u32[i] = 0xff000000;
+                      else
+                        data_u32[i] = 0xffffffff;
+                  }
+        ctx.putImageData(imageData, 0, 0);
       },
       tick: function() {
         if(!this.capturing) return;
         compatibility.requestAnimationFrame(this.tick);
-        if (this.video.readyState === this.video.HAVE_ENOUGH_DATA)
+        if (video.readyState === video.HAVE_ENOUGH_DATA)
           this.processFrame();
       },
       canPlayListener: function () {
-        this.video.removeEventListener('canplay', this.canPlayListener);
+        video.removeEventListener('canplay', this.canPlayListener);
         setTimeout(() => {
-          this.video.play();
+          video.play();
           this.demo_app();
           compatibility.requestAnimationFrame(this.tick);
         }, 500);
@@ -274,6 +261,19 @@
           this.sliderLow.disabled = true;
           this.sliderHigh.disabled = true;
           this.freezeBtnText = "Restart";
+          video.pause();
+
+          var data_u32 = new Uint32Array(imageData.data.buffer);
+          var alpha = (0xff << 24);
+          var i = img_u8.cols*img_u8.rows, pix = 0;
+          while(--i >= 0) {
+              pix = img_u8.data[i];
+              if(pix>0)
+                data_u32[i] = 0xffff0000;
+              else
+                data_u32[i] = 0xffffffff;
+          }
+          ctx.putImageData(imageData, 0, 0);
         }
         else if(!this.capturing) {
           this.processing = false;
@@ -281,13 +281,15 @@
           this.sliderLow.disabled = false;
           this.sliderHigh.disabled = false;
           this.freezeBtnText = "Freeze";
+          video.play();
           this.tick();
         }
       },
       doneClick: function() {
       },
-      maskClick: function() {
-        return false;
+      maskClick: function() {},
+      process: function() {
+
       }
     }
   }
