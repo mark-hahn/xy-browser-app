@@ -139,6 +139,7 @@
   import vueSlider from 'vue-slider-component';
 
   var video, canvas, ctx, img_u8, imageData;
+  var lines = [];
 
   export default {
     name: 'zdemo',
@@ -153,12 +154,12 @@
         processing: false,
         freezeBtnText: "Freeze",
         sliderLow: {
-					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 100, interval: 1,
+					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 200, interval: 1,
 					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
           tooltip: 'hover', piecewise: false
 				},
         sliderHigh: {
-					value: 50, width: 255, height: 8, dotSize: 20, min: 0, max: 100, interval: 1,
+					value: 50, width: 255, height: 8, dotSize: 20, min: 0, max: 200, interval: 1,
 					disabled: false, show: true, speed: 0.3, reverse: false, lazy: false,
 					tooltip: 'hover', piecewise: false
 				},
@@ -221,7 +222,7 @@
         var i = img_u8.cols*img_u8.rows, pix = 0;
                   while(--i >= 0) {
                       pix = img_u8.data[i];
-                      if(pix>0)
+                      if(pix<255)
                         data_u32[i] = 0xff000000;
                       else
                         data_u32[i] = 0xffffffff;
@@ -254,7 +255,6 @@
         console.log("undo:", val);
       },
       freezeClick: function() {
-        console.log("fc", this.capturing);
         if(this.capturing) {
           this.capturing = false;
           this.processing = true;
@@ -262,18 +262,7 @@
           this.sliderHigh.disabled = true;
           this.freezeBtnText = "Restart";
           video.pause();
-
-          var data_u32 = new Uint32Array(imageData.data.buffer);
-          var alpha = (0xff << 24);
-          var i = img_u8.cols*img_u8.rows, pix = 0;
-          while(--i >= 0) {
-              pix = img_u8.data[i];
-              if(pix>0)
-                data_u32[i] = 0xffff0000;
-              else
-                data_u32[i] = 0xffffffff;
-          }
-          ctx.putImageData(imageData, 0, 0);
+          this.process();
         }
         else if(!this.capturing) {
           this.processing = false;
@@ -289,8 +278,62 @@
       },
       maskClick: function() {},
       process: function() {
-
+        return;
+        var get3by3 = (x,y) => {
+          var i = y*640+x;
+          return [img_u8.data[i-641], img_u8.data[i-640], img_u8.data[i-639],
+                  img_u8.data[i  -1], img_u8.data[i    ], img_u8.data[i  +1],
+                  img_u8.data[i+639], img_u8.data[i+640], img_u8.data[i+641]];
+        }
+        var singleNeighbor = (x,y) => {
+          var idx, count = 0;
+          if(img_u8.data[y*640+x]<255) return;
+          var grid = get3by3(x,y);
+          for (let i of [0,1,2,3,5,6,7,8]) {
+            if(grid[i] == 255) count++;
+            idx = i;
+          }
+          if(count != 1) return -1;
+          return idx;
+        }
+        var i, pix, data_u32 = new Uint32Array(imageData.data.buffer);
+        for(let x=0; x < 640; x++)
+          for(let y=0; y < 480; y++)
+            if(singleNeighbor(x,y) > -1) {
+              data_u32[y*640+x] = 0xff0000ff;
+              img_u8.data[y*640+x] = 128;
+            }
+        for(let x=0; x < 640; x++)
+          for(let y=0; y < 480; y++)
+            if(singleNeighbor(x,y) > -1) {
+              data_u32[y*640+x] = 0xff00ff00;
+            }
+        ctx.putImageData(imageData, 0, 0);
       }
     }
   }
 </script>
+
+/*
+Filter the image to get it closer to black and white only pixels.
+
+Draw a line through the white pixels. To do this, start at a white pixel.
+
+Draw a line from that pixel to each other white pixel a distance of 2 (or 3 or so)
+away, but ignore pixels near a previous line. Keep going until you've covered
+every pixel not close (2 or 3 pixels) from a line. You'll have to do some minor
+adjustments here to get it to work well.
+
+Connect the endpoints of the lines you've drawn. If there are two endpoints near
+(1 or 2 pixels?) one another, connect them. You should end up with a few lines
+made up of a lot of short segments, possibly with some loops and forks.
+
+Get rid of any small loops in the lines, and seperate the lines at forks, so you
+have a few lines made of a lot of short segments.
+
+Reduce points. For each line, check to see if it is nearly straight. If so, remove
+all the interior points. If not, check the two halves of the line recursively until
+you get down to the minimum segment lengths.
+
+You can optionally fit a spline curve through the lines at this point.
+*/
