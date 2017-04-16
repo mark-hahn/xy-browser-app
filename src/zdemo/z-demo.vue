@@ -24,8 +24,16 @@
     top: 10px;
   }
   #left-controls {
+    position: relative;
     display: inline-block;
     width:320px;
+  }
+  #slidersMask {
+    position:absolute;
+    top:0px;
+    width:100%;
+    height:100%;
+    background-color: rgba(255,255,255,0.5);
   }
   #right-controls {
     display: inline-block;
@@ -36,6 +44,10 @@
     position:relative;
     top: 3px;
     font-size:30px;
+  }
+  #undo {
+    position:relative;
+    top: -25px;
   }
   #undo-label-line {
     position:relative;
@@ -52,8 +64,20 @@
     display: inline-block;
     float:right;
   }
+  .editmsg {
+    position:relative;
+    font-weight: bold;
+    top: 30px;
+    left:30px;
+    color: gray;
+  }
   .button {
-    margin-left:35px;
+    position:relative;
+    top:-20px;
+    font-weight: bold;
+    font-size: 14px;
+    font-weight: bold;
+    margin-left:25px;
   }
 </style>
 
@@ -74,10 +98,11 @@
                           v-bind="sliderHigh" v-model="highThresh"
                           v-on:callback="highChange"></vue-slider>
       </div>
+      <div id="slidersMask" v-if="!capturing"></div>
     </div>
 
     <div id="right-controls">
-      <div id="undo" v-if="mode=='editing'">
+      <div id="undo" v-if="!capturing && !processing && undoCount > 0">
         <div id="undo-label-line">
           <div id="undo-labl"> Undo<span class="arrow">&#x2190;</span> </div>
           <div id="redo-labl"> <span class="arrow">&#x2192;</span> Redo</div>
@@ -87,12 +112,17 @@
                     v-on:callback="undoChange"></vue-slider>
       </div>
       <div id="buttons">
+        <div class="editmsg" v-if="!capturing && !processing">
+          Click and drag to delete lines.
+        </div>
+        <div class="editmsg" v-if="processing">
+          Processing ...
+        </div>
         <button class="button" type="button" id="freezeBtn"
                 v-on:click="freezeClick">{{freezeBtnText}}</button>
-        <button class="button" type="button"
-                v-bind:disabled="mode != 'frozen'">Edit</button>
-        <button class="button" type="button"
-                v-bind:disabled="mode != 'frozen'">Finished</button>
+        <button class="button" type="button" id="doneBtn"
+                v-on:click="doneClick"
+                v-bind:disabled="capturing || processing">Finished</button>
       </div>
     </div>
 
@@ -117,7 +147,8 @@
         highThresh: 0,
         undoPos: 0,
         undoCount: 0,
-        mode: 'capturing',
+        capturing: true,
+        processing: false,
         freezeBtnText: "Freeze",
         video: null,
         canvas: null,
@@ -211,7 +242,7 @@
         this.ctx.putImageData(this.imageData, 0, 0);
       },
       tick: function() {
-        if(this.mode != 'capturing') return;
+        if(!this.capturing) return;
         compatibility.requestAnimationFrame(this.tick);
         if (this.video.readyState === this.video.HAVE_ENOUGH_DATA)
           this.processFrame();
@@ -225,27 +256,38 @@
         }, 500);
       },
       lowChange: function(val) {
-        console.log("low:", val);
-        if(this.mode == "frozen") this.processFrame();
+        // console.log("low:", val);
+        // if(!this.capturing ) this.processFrame();
       },
       highChange: function(val) {
-        console.log("high:", val);
-        if(this.mode == "frozen") this.processFrame();
+        // console.log("high:", val);
+        // if(!this.capturing) this.processFrame();
       },
       undoChange: function(val) {
         console.log("undo:", val);
       },
       freezeClick: function() {
-        console.log("freeze click",this.mode, document.getElementById('freezeBtn'));
-        if(this.mode == 'capturing') {
-          this.mode = 'frozen';
+        console.log("fc", this.capturing);
+        if(this.capturing) {
+          this.capturing = false;
+          this.processing = true;
+          this.sliderLow.disabled = true;
+          this.sliderHigh.disabled = true;
           this.freezeBtnText = "Restart";
         }
-        else if(this.mode == 'frozen') {
-          this.mode = 'capturing';
+        else if(!this.capturing) {
+          this.processing = false;
+          this.capturing = true;
+          this.sliderLow.disabled = false;
+          this.sliderHigh.disabled = false;
           this.freezeBtnText = "Freeze";
           this.tick();
         }
+      },
+      doneClick: function() {
+      },
+      maskClick: function() {
+        return false;
       }
     }
   }
