@@ -313,18 +313,104 @@
           }
           return [x,y];
         }
+        var idx2xy = (idx) => {
+          var x = idx % 640;
+          var y = (idx/640) | 0;
+          return [x,y];
+        }
+        var findLineFromEndIdx = (idx) => {
+          var x,y;
+          [x,y] = idx2xy(idx);
+          for(let i=0; i < lines.length && lines[i]; i++) {
+            var line = lines[i];
+            if(!line) continue;
+            var len = line.length;
+            if (line[0]     == x && line[1]     == y) return [i, line, false];
+            if (line[len-2] == x && line[len-1] == y) return [i, line, true];
+          }
+        }
+        // reverse order of pairs in line
+        var revLin = (line) => {
+          var newLine = [];
+          for(let i = line.length-2; i >= 0; i -= 2)
+            newLine = newLine.concat(line[i], line[i+1]);
+          return newLine;
+        }
+        var joinCloseLines = (idx1, idx2) => {
+          if(idx1 == idx2) return;
+          // idx1 is an end-point, check idx2
+          if(img_u8.data[idx2] == END_PIX ||
+             img_u8.data[idx2] == END_PIX) {
+
+            // join ends
+            var dif = idx2-idx1;
+            var newPixel = -1;
+            // we need a new pixel if ends are two apart
+            switch(dif) {
+              case -2*640-2: case -2*640-1: case -1*640-2:
+                newPixel = idx1-640-1; break;
+              case -2*640:
+                newPixel = idx1-640; break;
+              case -2*640+1: case -2*640+2: case -1*640+2:
+                newPixel = idx1-640+1; break;
+              case -2:
+                newPixel = idx1-1; break;
+              case +2:
+                newPixel = idx1+1; break;
+              case 1*640-2: case 2*640-2: case 2*640-1:
+                newPixel = idx1+640-1; break;
+              case 1*640+2: case 2*640+1: case 2*640+2:
+                newPixel = idx1+640+1; break;
+              case 2*640:
+                newPixel = idx1+640; break;
+            }
+            var newXY;
+            if(newPixel) {
+              newXY = idx2xy(newPixel);
+              img_u8.data[newPixel] = INSIDE_PIX;
+            } else newXY = [];
+            img_u8.data[idx1] = INSIDE_PIX;
+            img_u8.data[idx2] = INSIDE_PIX;
+            var line1 = findLineFromEndIdx(idx1);
+            var line2 = findLineFromEndIdx(idx2);
+            if(line1[0] == line2[0]) {
+              lines[line1[0]] = line1[1].concat(newXY);
+              return;
+            }
+            var newLine;
+            if(!line1[2] && !line2[2])       // front1(rev) | front2
+              newLine = revLin(line1[1]).concat(newXY, line2[1]);
+            else if(line1[2] && !line2[2])   // end1 | front2
+              newLine = line1[1].concat(newXY, line2[1]);
+            else if(!line1[2] && line2[2])   // end2 || front1
+              newLine = line2[1].concat(newXY, line1[1]);
+            else if(line1[2] && line2[2])   // end1 | end2(rev)
+              newLine = line1[1].concat(newXY, revLin(line2[1]);
+            lines[line1[0]] = newLine;
+            delete lines[line2[0]];
+          }
+        }
+
         // img_u8.data values
         const PIX_OFF    = 0;
-        const START_PIX  = 1;
-        const INSIDE_PIX = 2;
-        const END_PIX    = 3;
+        const INSIDE_PIX = 1;
+        const END_PIX    = 2;
         const PIX_ON     = 255;
+
         const RED   = 0xff0000ff;
         const GREEN = 0xff00ff00;
         const BLACK = 0xff000000;
 
         var lineCnt = 0;
         var lines = [];
+
+        // for debug
+        var countLines = () => {
+          var cnt = 0;
+          for(let line of lines)
+            if(line) cnt++;
+          return cnt;
+        }
 
         var showLines = () => {
           var color = GREEN;
@@ -349,7 +435,7 @@
           if(img_u8.data[idx] == PIX_ON) {
 
             // we found a starting pix
-            img_u8.data[idx] = START_PIX;
+            img_u8.data[idx] = END_PIX;
             lines[lineCnt] = [x,y];
 
             // walk
@@ -361,27 +447,36 @@
               // find furthest neighbor
               for (let nbr of oppNbrs[lastNbr]) {
                 if(nbrs[nbr] == PIX_ON) {
+                  [x,y] = nbr2xy(x,y,nbr);
+                  var idx = y*640+x;
+                  if(foundNbr) {
+                    // delete neighbors not closest
+                    if(img_u8.data[idx] == PIX_ON) {
+                       img_u8.data[idx] = PIX_OFF;
+                       data_u32[idx] = BLACK;
+                     }
+                    continue;
+                  }
                   foundNbr = true;
                   lastNbr = 8 - nbr;
-                  [x,y] = nbr2xy(x,y,nbr);
-                  img_u8.data[y*640+x] = INSIDE_PIX;
+                  img_u8.data[idx] = INSIDE_PIX;
                   lines[lineCnt] = lines[lineCnt].concat(x,y);
                   lastX = x; lastY = y;
-                  break;
                 }
               }
               if(!foundNbr) {
                 img_u8.data[lastY*640+lastX] = END_PIX;
                 var line = lines[lineCnt];
-                if(line.length < 6) {
-                  for(let v = 0; v < line.length; v += 2) {
-                    x = line[v];
-                    y = line[v+1];
-                    img_u8.data[y*640+x] = PIX_OFF;
-                    data_u32[y*640+x] = BLACK;
-                  }
-                  delete lines[lineCnt];
-                } else
+                // ignore lines less than 3 pixels long
+                // if(line.length < 6) {
+                //   for(let v = 0; v < line.length; v += 2) {
+                //     x = line[v];
+                //     y = line[v+1];
+                //     img_u8.data[y*640+x] = PIX_OFF;
+                //     data_u32[y*640+x] = BLACK;
+                //   }
+                //   delete lines[lineCnt];
+                // } else
                   lineCnt++;
                 // showLines();
                 break;
@@ -393,33 +488,24 @@
             startY++;
           }
         }
+        console.log("number of lines after scan:", lineCnt, ", actual:", countLines());
+
+        // join close start/end pixels
+        for(let idx = 0; idx < 640*480; id++) {
+          if(img_u8.data[idx] == END_PIX ||
+             img_u8.data[idx] == END_PIX) {
+            for(n = idx-2*640-2; n <= idx-2*640+2; n++) joinCloseLines(idx, n);
+            for(n = idx-1*640-2; n <= idx-1*640+2; n++) joinCloseLines(idx, n);
+            for(n = idx-2;       n <= idx+2;       n++) joinCloseLines(idx, n);
+            for(n = idx+1*640-2; n <= idx+1*640+2; n++) joinCloseLines(idx, n);
+            for(n = idx+2*640-2; n <= idx+2*640+2; n++) joinCloseLines(idx, n);
+          }
+        }
+
+        console.log("number of lines at end:", lineCnt, ", actual:", countLines());
         showLines();
         this.processing = false;
       }
     }
   }
 </script>
-
-/*
-Filter the image to get it closer to black and white only pixels.
-
-Draw a line through the white pixels. To do this, start at a white pixel.
-
-Draw a line from that pixel to each other white pixel a distance of 2 (or 3 or so)
-away, but ignore pixels near a previous line. Keep going until you've covered
-every pixel not close (2 or 3 pixels) from a line. You'll have to do some minor
-adjustments here to get it to work well.
-
-Connect the endpoints of the lines you've drawn. If there are two endpoints near
-(1 or 2 pixels?) one another, connect them. You should end up with a few lines
-made up of a lot of short segments, possibly with some loops and forks.
-
-Get rid of any small loops in the lines, and seperate the lines at forks, so you
-have a few lines made of a lot of short segments.
-
-Reduce points. For each line, check to see if it is nearly straight. If so, remove
-all the interior points. If not, check the two halves of the line recursively until
-you get down to the minimum segment lengths.
-
-You can optionally fit a spline curve through the lines at this point.
-*/
