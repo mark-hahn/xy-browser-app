@@ -281,54 +281,120 @@
 
       process: function() {
         // return;
-        var get3by3 = (x,y) => {
+        var getNbrs = (x,y) => {
           var i = y*640+x;
           return [img_u8.data[i-641], img_u8.data[i-640], img_u8.data[i-639],
                   img_u8.data[i  -1], img_u8.data[i    ], img_u8.data[i  +1],
                   img_u8.data[i+639], img_u8.data[i+640], img_u8.data[i+641]];
         }
-        var singleNeighbor = (x,y) => {
-          var idx, count = 0;
-          // if(img_u8.data[y*640+x] < 255) return;
-          var grid = get3by3(x,y);
-          for (let i of [0,1,2,3,5,6,7,8]) {
-            if(grid[i] == 255) {
-              if(++count > 2) break;
-              idx = i;
+        // opposite neighbors in distance order
+        var oppNbrs = [
+          [8,5,7,2,6,1,3], // 0
+          [7,6,8,3,5,0,2], // 1
+          [6,3,7,0,8,1,5], // 2
+          [5,2,8,1,7,0,6], // 3
+                     null, // 4
+          [3,0,6,1,7,2,8], // 5
+          [2,1,5,0,8,3,7], // 6
+          [1,0,2,3,5,6,8], // 7
+          [0,3,1,2,6,5,7] // 8
+        ];
+        // adjust xy to neighbor
+        var nbr2xy = (x,y,idx) => {
+          switch(idx) {
+            case 0: x--; y--; break;
+            case 1:      y--; break;
+            case 2: x++; y--; break;
+            case 3: x--;      break;
+            case 5: x++;      break;
+            case 6: x--; y++; break;
+            case 7:      y++; break;
+            case 8: x++; y++; break;
+          }
+          return [x,y];
+        }
+        // img_u8.data values
+        const PIX_OFF    = 0;
+        const START_PIX  = 1;
+        const INSIDE_PIX = 2;
+        const END_PIX    = 3;
+        const PIX_ON     = 255;
+        const RED   = 0xff0000ff;
+        const GREEN = 0xff00ff00;
+        const BLACK = 0xff000000;
+
+        var lineCnt = 0;
+        var lines = [];
+
+        var showLines = () => {
+          var color = GREEN;
+          for(let line of lines) {
+            if(!line) continue;
+            color = (color == RED? GREEN : RED);
+            for(let v = 0; v < line.length; v += 2) {
+              x = line[v];
+              y = line[v+1];
+              data_u32[y*640+x] = color;
             }
           }
-          if(count == 1 || count == 2) return idx;
-          return -1;
+          ctx.putImageData(imageData, 0, 0);
         }
-        var x = 0, y = 0, lineCnt = 0;
-        var lines = [];
-        while(true) {
-          if(img_u8.data[y*640+x] == 255) {
-            while(x > -1) {
-              img_u8.data[y*640+x] = 128;
-              lines[lineCnt++] = [x,y];
-              switch(singleNeighbor(x,y)) {
-                case 0: x--; y--; break;
-                case 1:      y--; break;
-                case 2: x++; y--; break;
-                case 3: x--;      break;
-                case 5: x++;      break;
-                case 6: x--; y++; break;
-                case 7:      y++; break;
-                case 8: x++; y++; break;
-                default: x = -1;;
+
+        var startX = 0, startY = 0;
+        while(startY < 480) {
+          // try new starting point
+          var x = startX; var y = startY;
+
+          var idx = y*640+x;
+          if(img_u8.data[idx] == PIX_ON) {
+
+            // we found a starting pix
+            img_u8.data[idx] = START_PIX;
+            lines[lineCnt] = [x,y];
+
+            // walk
+            var lastNbr = 3; // defaults to coming from the left
+            var lastX = x, lastY = y;
+            while(true) {
+              var nbrs = getNbrs(x,y);
+              var foundNbr = false;
+              // find furthest neighbor
+              for (let nbr of oppNbrs[lastNbr]) {
+                if(nbrs[nbr] == PIX_ON) {
+                  foundNbr = true;
+                  lastNbr = 8 - nbr;
+                  [x,y] = nbr2xy(x,y,nbr);
+                  img_u8.data[y*640+x] = INSIDE_PIX;
+                  lines[lineCnt] = lines[lineCnt].concat(x,y);
+                  lastX = x; lastY = y;
+                  break;
+                }
+              }
+              if(!foundNbr) {
+                img_u8.data[lastY*640+lastX] = END_PIX;
+                var line = lines[lineCnt];
+                if(line.length < 6) {
+                  for(let v = 0; v < line.length; v += 2) {
+                    x = line[v];
+                    y = line[v+1];
+                    img_u8.data[y*640+x] = PIX_OFF;
+                    data_u32[y*640+x] = BLACK;
+                  }
+                  delete lines[lineCnt];
+                } else
+                  lineCnt++;
+                // showLines();
+                break;
               }
             }
-          } else {
-            x++; y++;
           }
-          if(x == -1) break;
+          if(++startX == 640) {
+            startX = 0;
+            startY++;
+          }
         }
-        for(let line of lines)  {
-          [x,y] = line;
-          data_u32[y*640+x] = 0xff0000ff;
-        }
-        ctx.putImageData(imageData, 0, 0);
+        showLines();
+        this.processing = false;
       }
     }
   }
