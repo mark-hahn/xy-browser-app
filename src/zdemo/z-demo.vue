@@ -279,14 +279,10 @@
       },
       maskClick: function() {},
 
+      // this runs when video is first frozen
+      // it turns pixels into clean lines
       process: function() {
         // return;
-        var getNbrs = (x,y) => {
-          var i = y*640+x;
-          return [img_u8.data[i-641], img_u8.data[i-640], img_u8.data[i-639],
-                  img_u8.data[i  -1], img_u8.data[i    ], img_u8.data[i  +1],
-                  img_u8.data[i+639], img_u8.data[i+640], img_u8.data[i+641]];
-        }
         // opposite neighbors in distance order
         var oppNbrs = [
           [8,5,7,2,6,1,3], // 0
@@ -297,9 +293,9 @@
           [3,0,6,1,7,2,8], // 5
           [2,1,5,0,8,3,7], // 6
           [1,0,2,3,5,6,8], // 7
-          [0,3,1,2,6,5,7] // 8
+          [0,3,1,2,6,5,7]  // 8
         ];
-        // adjust xy to neighbor
+        // take one step to neighbor
         var nbr2xy = (x,y,idx) => {
           switch(idx) {
             case 0: x--; y--; break;
@@ -318,16 +314,44 @@
           var y = (idx/640) | 0;
           return [x,y];
         }
+        // return val if indexes are on same quarter of frame
+        // this is used to check for unwanted wrapping
+        var idxsAreClose = (idx1, idx2, val = 1) => {
+          var x1,y1,x2,y2;
+          [x1,y1] = idx2xy(idx1);
+          [x2,y2] = idx2xy(idx2);
+          if((x2-x1) > 320 || (x1-x2) > 320 ||
+             (y2-y1) > 240 || (y1-y2) > 240)
+            return 0;
+          return val;
+        }
+        // get neighbor pix values
+        var getNbrs = (x,y) => {
+          var i = y*640+x;
+          return [
+            idxsAreClose(i, i-641, img_u8.data[i-641]),
+            idxsAreClose(i, i-640, img_u8.data[i-640]),
+            idxsAreClose(i, i-639, img_u8.data[i-639]),
+
+            idxsAreClose(i, i-1, img_u8.data[i-1]),
+            img_u8.data[i],
+            idxsAreClose(i, i+1, img_u8.data[i+1]),
+
+            idxsAreClose(i, i+639, img_u8.data[i+639]),
+            idxsAreClose(i, i+640, img_u8.data[i+640]),
+            idxsAreClose(i, i+641, img_u8.data[i+641])]
+        }
         var findLineFromEndIdx = (idx) => {
           var x,y;
           [x,y] = idx2xy(idx);
-          for(let i=0; i < lines.length && lines[i]; i++) {
+          for(let i=0; i < lines.length; i++) {
             var line = lines[i];
             if(!line) continue;
             var len = line.length;
             if (line[0]     == x && line[1]     == y) return [i, line, false];
             if (line[len-2] == x && line[len-1] == y) return [i, line, true];
           }
+          console.log("line for idx ",idx,", point", x, ",", y, "is missing");
         }
         // reverse order of pairs in line
         var revLin = (line) => {
@@ -336,59 +360,64 @@
             newLine = newLine.concat(line[i], line[i+1]);
           return newLine;
         }
+        // find endpoints within two pixels of each other
+        // and combine their lines
+        // idx1 is a known endpoint
         var joinCloseLines = (idx1, idx2) => {
-          if(idx1 == idx2) return;
-          // idx1 is an end-point, check idx2
-          if(img_u8.data[idx2] == END_PIX ||
-             img_u8.data[idx2] == END_PIX) {
+          if(idx1 == idx2 || img_u8.data[idx2] != END_PIX) return false;
 
-            // join ends
-            var dif = idx2-idx1;
-            var newPixel = -1;
-            // we need a new pixel if ends are two apart
-            switch(dif) {
-              case -2*640-2: case -2*640-1: case -1*640-2:
-                newPixel = idx1-640-1; break;
-              case -2*640:
-                newPixel = idx1-640; break;
-              case -2*640+1: case -2*640+2: case -1*640+2:
-                newPixel = idx1-640+1; break;
-              case -2:
-                newPixel = idx1-1; break;
-              case +2:
-                newPixel = idx1+1; break;
-              case 1*640-2: case 2*640-2: case 2*640-1:
-                newPixel = idx1+640-1; break;
-              case 1*640+2: case 2*640+1: case 2*640+2:
-                newPixel = idx1+640+1; break;
-              case 2*640:
-                newPixel = idx1+640; break;
-            }
-            var newXY;
-            if(newPixel) {
-              newXY = idx2xy(newPixel);
-              img_u8.data[newPixel] = INSIDE_PIX;
-            } else newXY = [];
-            img_u8.data[idx1] = INSIDE_PIX;
-            img_u8.data[idx2] = INSIDE_PIX;
-            var line1 = findLineFromEndIdx(idx1);
-            var line2 = findLineFromEndIdx(idx2);
-            if(line1[0] == line2[0]) {
-              lines[line1[0]] = line1[1].concat(newXY);
-              return;
-            }
-            var newLine;
-            if(!line1[2] && !line2[2])       // front1(rev) | front2
-              newLine = revLin(line1[1]).concat(newXY, line2[1]);
-            else if(line1[2] && !line2[2])   // end1 | front2
-              newLine = line1[1].concat(newXY, line2[1]);
-            else if(!line1[2] && line2[2])   // end2 || front1
-              newLine = line2[1].concat(newXY, line1[1]);
-            else if(line1[2] && line2[2])   // end1 | end2(rev)
-              newLine = line1[1].concat(newXY, revLin(line2[1]);
-            lines[line1[0]] = newLine;
-            delete lines[line2[0]];
+          // are pixels on opposite edges of frame?
+          // this can happen when neighbors wrap
+          if(!idxsAreClose(idx1, idx2)) return false;
+
+          // we need a new pixel if ends are two apart
+          var dif = idx2-idx1;
+          var newPixel = null;
+          switch(dif) {
+            case -2*640-2: case -2*640-1: case -1*640-2:
+              newPixel = idx1-640-1; break;
+            case -2*640:
+              newPixel = idx1-640; break;
+            case -2*640+1: case -2*640+2: case -1*640+2:
+              newPixel = idx1-640+1; break;
+            case -2:
+              newPixel = idx1-1; break;
+            case +2:
+              newPixel = idx1+1; break;
+            case 1*640-2: case 2*640-2: case 2*640-1:
+              newPixel = idx1+640-1; break;
+            case 1*640+2: case 2*640+1: case 2*640+2:
+              newPixel = idx1+640+1; break;
+            case 2*640:
+              newPixel = idx1+640; break;
           }
+          var newXY;
+          if(newPixel) {
+            newXY = idx2xy(newPixel);
+            img_u8.data[newPixel] = INSIDE_PIX;
+          } else newXY = [];
+          img_u8.data[idx1] = INSIDE_PIX;
+          img_u8.data[idx2] = INSIDE_PIX;
+          var line1 = findLineFromEndIdx(idx1);
+          var line2 = findLineFromEndIdx(idx2);
+          // are these the two ends of one line?
+          if(line1[0] == line2[0]) {
+            lines[line1[0]] = line1[1].concat(newXY);
+            return true;
+          }
+          // concat lines paying attention to ends
+          var newLine;
+          if(!line1[2] && !line2[2])       // front1(rev) | front2
+            newLine = revLin(line1[1]).concat(newXY, line2[1]);
+          else if(line1[2] && !line2[2])   // end1 | front2
+            newLine = line1[1].concat(newXY, line2[1]);
+          else if(!line1[2] && line2[2])   // end2 || front1
+            newLine = line2[1].concat(newXY, line1[1]);
+          else if(line1[2] && line2[2])    // end1 | end2(rev)
+            newLine = line1[1].concat(newXY, revLin(line2[1]));
+          lines[line1[0]] = newLine;
+          delete lines[line2[0]];
+          return true;
         }
 
         // img_u8.data values
@@ -397,15 +426,19 @@
         const END_PIX    = 2;
         const PIX_ON     = 255;
 
-        const RED   = 0xff0000ff;
-        const GREEN = 0xff00ff00;
-        const BLACK = 0xff000000;
+        const RED    = 0xff0000ff;
+        const GREEN  = 0xff00ff00;
+        const YELLOW = 0xff00ffff;
+        const BLUE   = 0xffff0000;
+        const CYAN   = 0xffffff00;
+        const BLACK  = 0xff000000;
+        const WHITE  = 0xffffffff;
 
         var lineCnt = 0;
         var lines = [];
 
         // for debug
-        var countLines = () => {
+        var actualLineCount = () => {
           var cnt = 0;
           for(let line of lines)
             if(line) cnt++;
@@ -418,14 +451,29 @@
             if(!line) continue;
             color = (color == RED? GREEN : RED);
             for(let v = 0; v < line.length; v += 2) {
-              x = line[v];
-              y = line[v+1];
-              data_u32[y*640+x] = color;
+              let x = line[v];
+              let y = line[v+1];
+              let idx = y*640+x;
+              if(img_u8.data[idx] != END_PIX &&
+                 img_u8.data[idx] != INSIDE_PIX)
+                console.log("line val not END_PIX or INSIDE_PIX");
+
+              if(img_u8.data[idx] == END_PIX) {
+                data_u32[idx] = (color == RED? CYAN : YELLOW);
+                if(v != 0 && v != line.length-2)
+                  console.log("END_PIX in middle of line");
+              }
+              else {
+                if(v == 0 || v == line.length-2)
+                  console.log("INSIDE_PIX at end of line");
+                data_u32[idx] = color;
+              }
             }
           }
           ctx.putImageData(imageData, 0, 0);
         }
 
+        // find all lines and walk them
         var startX = 0, startY = 0;
         while(startY < 480) {
           // try new starting point
@@ -439,18 +487,20 @@
             lines[lineCnt] = [x,y];
 
             // walk
-            var lastNbr = 3; // defaults to coming from the left
-            var lastX = x, lastY = y;
+            let lastNbr = 3; // defaults to coming from the left
+            let lastIdx = idx;
             while(true) {
               var nbrs = getNbrs(x,y);
               var foundNbr = false;
               // find furthest neighbor
               for (let nbr of oppNbrs[lastNbr]) {
                 if(nbrs[nbr] == PIX_ON) {
-                  [x,y] = nbr2xy(x,y,nbr);
-                  var idx = y*640+x;
+                  let nbrX, nbrY;
+                  [nbrX,nbrY] = nbr2xy(x,y,nbr);
+                  let idx = nbrY*640+nbrX;
                   if(foundNbr) {
                     // delete neighbors not closest
+                    // might delete wrap-around pix but who cares
                     if(img_u8.data[idx] == PIX_ON) {
                        img_u8.data[idx] = PIX_OFF;
                        data_u32[idx] = BLACK;
@@ -460,13 +510,16 @@
                   foundNbr = true;
                   lastNbr = 8 - nbr;
                   img_u8.data[idx] = INSIDE_PIX;
+                  x = nbrX;
+                  y = nbrY;
                   lines[lineCnt] = lines[lineCnt].concat(x,y);
-                  lastX = x; lastY = y;
+                  lastIdx = idx;
                 }
               }
               if(!foundNbr) {
-                img_u8.data[lastY*640+lastX] = END_PIX;
-                var line = lines[lineCnt];
+                // at end of line
+                img_u8.data[lastIdx] = END_PIX;
+                // var line = lines[lineCnt];
                 // ignore lines less than 3 pixels long
                 // if(line.length < 6) {
                 //   for(let v = 0; v < line.length; v += 2) {
@@ -488,21 +541,25 @@
             startY++;
           }
         }
-        console.log("number of lines after scan:", lineCnt, ", actual:", countLines());
+        console.log("number of lines after scan:", lineCnt, ", actual:", actualLineCount());
 
-        // join close start/end pixels
-        for(let idx = 0; idx < 640*480; id++) {
-          if(img_u8.data[idx] == END_PIX ||
-             img_u8.data[idx] == END_PIX) {
-            for(n = idx-2*640-2; n <= idx-2*640+2; n++) joinCloseLines(idx, n);
-            for(n = idx-1*640-2; n <= idx-1*640+2; n++) joinCloseLines(idx, n);
-            for(n = idx-2;       n <= idx+2;       n++) joinCloseLines(idx, n);
-            for(n = idx+1*640-2; n <= idx+1*640+2; n++) joinCloseLines(idx, n);
-            for(n = idx+2*640-2; n <= idx+2*640+2; n++) joinCloseLines(idx, n);
-          }
-        }
+//         // find line pairs with close endpoints and join them
+// outer:  for(let idx = 0; idx < 640*480; idx++) {
+//           var n;
+//           if(img_u8.data[idx] != END_PIX) continue;
+//           for(n = idx-2*640-2; n <= idx-2*640+2; n++)
+//             if(joinCloseLines(idx, n)) continue outer;
+//           for(n = idx-1*640-2; n <= idx-1*640+2; n++)
+//             if(joinCloseLines(idx, n)) continue outer;
+//           for(n = idx-2;       n <= idx+2;       n++)
+//             if(joinCloseLines(idx, n)) continue outer;
+//           for(n = idx+1*640-2; n <= idx+1*640+2; n++)
+//             if(joinCloseLines(idx, n)) continue outer;
+//           for(n = idx+2*640-2; n <= idx+2*640+2; n++)
+//             if(joinCloseLines(idx, n)) continue outer;
+//         }
 
-        console.log("number of lines at end:", lineCnt, ", actual:", countLines());
+        console.log("number of lines at end:", lineCnt, ", actual:", actualLineCount());
         showLines();
         this.processing = false;
       }
