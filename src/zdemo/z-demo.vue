@@ -26,6 +26,7 @@
     position: relative;
     display: inline-block;
     width:50%;
+    font-weight: bold;
   }
   #right-controls {
     padding-left:40px;
@@ -97,6 +98,12 @@
         </div>
       </div>
 
+      <div id="left-processing" v-if="processing">
+        <div>
+          Processing ...
+        </div>
+      </div>
+
       <div id="left-pruning" v-if="pruning">
         <div>
           Adjust slider to remove small lines.
@@ -112,8 +119,8 @@
           Click and drag on the image to manually delete lines.
         </div>
         <div>
-          Undo: <vue-slider class="slider"
-                           v-bind="sliderUndo" v-model="undoPos"></vue-slider>
+          Undo: <vue-slider class="slider" v-on:callback="undoChange"
+                 v-bind="sliderUndo" v-model="undoPos"></vue-slider>
         </div>
       </div>
 
@@ -145,7 +152,11 @@
 
     <video id="webcam" width="640" height="480" style="display:none"></video>
     <div style="width:640px; height:480px;">
-        <canvas id="canvas" width="640" height="480"></canvas>
+        <canvas id="canvas"
+          v-on:mousemove="delMouseMove"
+          v-on:mouseover="delMouseover"
+          v-on:mouseout="delMouseout"
+          width="640" height="480"></canvas>
     </div>
   </div>
 </template>
@@ -168,7 +179,8 @@
   const WHITE  = 0xffffffff;
 
   var video, canvas, ctx, img_u8, imageData,
-      lines = [], lineCnt = 0, lineTooSmall = [], lineDeleted = [], imageData_u32;
+      lines = [], lineCnt = 0, lineTooSmall = [], lineIdx = [],
+      lineDeleted = [], deletedCount = 0, imageData_u32;
 
   var actualLineCount = () => {
     var cnt = 0;
@@ -302,7 +314,6 @@
         }, 500);
       },
       pruneChange: function(pruneThresh) {
-        console.log("prune:", pruneThresh);
         // remove small lines
         for(let i=0; i < lines.length; i++) {
           let line = lines[i];
@@ -348,8 +359,59 @@
           this.capturing = false;
           this.processing = true;
           video.pause();
-          this.process();
-          drawLines();
+          setTimeout( () => {
+            this.process();
+            drawLines();
+          }, 500);
+        } else if (this.pruning) {
+          this.pruning = false;
+          this.deleting = true;
+          this.rightBtnText = "Save";
+          this.sliderUndo.max = 0;
+          lineIdx = [];
+          lineDeleted = [];
+          deletedCount = 0;
+          for(let i=0; i < lines.length; i++) {
+            let line = lines[i];
+            if(!line) continue;
+            for(let v = 0; v < line.length; v += 2) {
+              let x = line[v];
+              let y = line[v+1];
+              let idx = y*640+x;
+              lineIdx[idx] = i;
+            }
+          }
+        }
+      },
+      delMouseover: function(event) {
+        document.body.style.cursor = "cell";
+      },
+      delMouseout: function(event) {
+        document.body.style.cursor = "auto";
+      },
+      delMouseMove: function(event) {
+        if(event.buttons != 1) return;
+        let x = event.offsetX;
+        let y = event.offsetY;
+        for(let x1=x-4; x1 < x + 4; x1++) {
+          for(let y1=y-4; y1 < y + 4; y1++) {
+            let mouseIdx = y1*640+x1;
+            let lineNum = lineIdx[mouseIdx];
+            if(lineNum && img_u8.data[mouseIdx] != PIX_OFF && !lineDeleted[lineNum]) {
+              deletedCount++;
+              lineDeleted[lineNum] = deletedCount;
+              this.sliderUndo.max = deletedCount
+              let line = lines[lineNum];
+              for(let v = 0; v < line.length; v += 2) {
+                let x = line[v];
+                let y = line[v+1];
+                let idx = y*640+x;
+                img_u8.data[idx] = PIX_OFF;
+                imageData_u32[idx] = WHITE;
+              }
+              drawLines();
+            }
+          }
         }
       },
 
@@ -640,6 +702,7 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
         // done processing
         lineTooSmall = [];
         lineDeleted = [];
+        deletedCount = 0;
         this.pruneThresh = 20;
         this.pruneChange(20);
         this.processing = false;
