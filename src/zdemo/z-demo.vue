@@ -118,9 +118,9 @@
         <div>
           Click and drag on the image to manually delete lines.
         </div>
-        <div>
+        <div  v-if="deletedCount > 0">
           Undo: <vue-slider class="slider" v-on:callback="undoChange"
-                 v-bind="sliderUndo" v-model="undoPos"></vue-slider>
+                 v-bind="sliderUndo" v-model="undoValue"></vue-slider>
         </div>
       </div>
 
@@ -180,7 +180,7 @@
 
   var video, canvas, ctx, img_u8, imageData,
       lines = [], lineCnt = 0, lineTooSmall = [], lineIdx = [],
-      lineDeleted = [], deletedCount = 0, imageData_u32;
+      lineDeleted = [], imageData_u32;
 
   var actualLineCount = () => {
     var cnt = 0;
@@ -191,20 +191,6 @@
     return cnt;
   }
 
-  var drawLines = () => {
-    imageData_u32.fill(WHITE);
-    for(let i=0; i < lines.length; i++) {
-      let line = lines[i];
-      if(!line || lineTooSmall[i] || lineDeleted[i]) continue;
-      for(let v = 0; v < line.length; v += 2) {
-        let x = line[v];
-        let y = line[v+1];
-        imageData_u32[y*640+x] = BLACK;
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-  }
-
   export default {
     name: 'zdemo',
     components: {vueSlider},
@@ -213,7 +199,8 @@
         lowThresh: 20,
         highThresh: 50,
         pruneThresh: 20,
-        undoPos: 0,
+        deletedCount: 0,
+        undoValue: 0,
         capturing: true,
         processing: false,
         pruning: false,
@@ -268,6 +255,21 @@
       });
     }, // end mounted:
     methods: {
+      drawLines: function() {
+        imageData_u32.fill(WHITE);
+        for(let i=0; i < lines.length; i++) {
+          let line = lines[i];
+          if(!line || lineTooSmall[i] ||
+             (lineDeleted[i] && lineDeleted[i] <= this.undoValue))
+            continue;
+          for(let v = 0; v < line.length; v += 2) {
+            let x = line[v];
+            let y = line[v+1];
+            imageData_u32[y*640+x] = BLACK;
+          }
+        }
+        ctx.putImageData(imageData, 0, 0);
+      },
       demo_app: function () {
         ctx = canvas.getContext('2d');
         ctx.fillStyle = "rgb(0,255,0)";
@@ -334,11 +336,8 @@
             lineTooSmall[i] = true;
           }
         }
-        drawLines();
+        this.drawLines();
         console.log("number of lines after pruning small lines:", actualLineCount());
-      },
-      undoChange: function(val) {
-        console.log("undo:", val);
       },
       leftClick: function() {
         // restart
@@ -361,16 +360,16 @@
           video.pause();
           setTimeout( () => {
             this.process();
-            drawLines();
+            this.drawLines();
           }, 500);
         } else if (this.pruning) {
           this.pruning = false;
           this.deleting = true;
-          this.rightBtnText = "Save";
+          this.rightBtnText = "Next";
           this.sliderUndo.max = 0;
           lineIdx = [];
           lineDeleted = [];
-          deletedCount = 0;
+          this.deletedCount = 0;
           for(let i=0; i < lines.length; i++) {
             let line = lines[i];
             if(!line) continue;
@@ -397,10 +396,18 @@
           for(let y1=y-4; y1 < y + 4; y1++) {
             let mouseIdx = y1*640+x1;
             let lineNum = lineIdx[mouseIdx];
-            if(lineNum && img_u8.data[mouseIdx] != PIX_OFF && !lineDeleted[lineNum]) {
-              deletedCount++;
-              lineDeleted[lineNum] = deletedCount;
-              this.sliderUndo.max = deletedCount
+            if(lineNum && img_u8.data[mouseIdx] != PIX_OFF &&
+                (!lineDeleted[lineNum] || lineDeleted[lineNum] > this.undoValue)) {
+              // delete line
+              if(this.undoValue < this.sliderUndo.max) {
+                for(let i = this.undoValue+1; i < this.deletedCount; i++)
+                  delete lineDeleted[lineNum];
+                this.deletedCount = this.undoValue;
+              }
+              lineDeleted[lineNum]  = this.deletedCount;
+              this.sliderUndo.max   = this.deletedCount
+              this.sliderUndo.value = this.deletedCount;
+              this.deletedCount++;
               let line = lines[lineNum];
               for(let v = 0; v < line.length; v += 2) {
                 let x = line[v];
@@ -409,10 +416,15 @@
                 img_u8.data[idx] = PIX_OFF;
                 imageData_u32[idx] = WHITE;
               }
-              drawLines();
+              this.drawLines();
             }
           }
         }
+      },
+      undoChange: function(val) {
+        console.log("undo:", val);
+        this.undoValue = val;
+        this.drawLines();
       },
 
       // this runs when video is first frozen
@@ -586,43 +598,6 @@
             console.log("%3d: %3d,%3d, %s", v/2, x, y, type);
           }
         }
-
-        // var drawLines = () => {
-        //   var color = GREEN;
-        //   for(let line of lines) {
-        //     if(!line) continue;
-        //     color = (color == RED? GREEN : RED);
-        //     for(let v = 0; v < line.length; v += 2) {
-        //       let x = line[v];
-        //       let y = line[v+1];
-        //       let idx = y*640+x;
-        //
-        //       if(img_u8.data[idx] != END_PIX &&
-        //          img_u8.data[idx] != INSIDE_PIX)
-        //         console.log("line val not END_PIX or INSIDE_PIX");
-        //
-        //       if(img_u8.data[idx] == END_PIX) {
-        //         imageData_u32[idx] = (color == RED? CYAN : YELLOW);
-        //         // this test fails when line crosses itself, which is OK
-        //         // if(v != 0 && v != line.length-2) {
-        //         //   console.log("END_PIX in middle of line");
-        //         //   dumpLine(line);
-        //         // }
-        //       }
-        //       else {
-        //         if(v == 0 || v == line.length-2) {
-        //           if(!lineIsALoop(line)) {
-        //             console.log("INSIDE_PIX at end of line");
-        //             dumpLine(line);
-        //           }
-        //         }
-        //         imageData_u32[idx] = color;
-        //       }
-        //     }
-        //   }
-        //   ctx.putImageData(imageData, 0, 0);
-        // }
-
         // find all lines and walk them
         var startX = 0, startY = 0;
         while(startY < 480) {
@@ -670,7 +645,6 @@
                 // at end of line
                 img_u8.data[lastIdx] = END_PIX;
                 lineCnt++;
-                // drawLines();
                 break;
               }
             }
@@ -702,7 +676,7 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
         // done processing
         lineTooSmall = [];
         lineDeleted = [];
-        deletedCount = 0;
+        this.deletedCount = 0;
         this.pruneThresh = 20;
         this.pruneChange(20);
         this.processing = false;
