@@ -222,13 +222,13 @@
 					value: 15, width: 255, height: 8, dotSize: 20,
           min: 0, max: 50, interval: 1, disabled: false,
           show: true, speed: 0.3, reverse: false,
-          lazy: false, tooltip: 'hover', piecewise: false
+          lazy: false, tooltip: 'none', piecewise: false
 				},
         sliderUndo: {
 					value: 0, width: 255, height: 8, dotSize: 20,
           min: 0, max: 0, interval: 1, disabled: false,
           show: true, speed: 0.3, reverse: false,
-          lazy: false, tooltip: 'hover', piecewise: false
+          lazy: false, tooltip: 'none', piecewise: false
 				}
       }
   	},
@@ -383,7 +383,8 @@
         }
       },
       delMouseover: function(event) {
-        document.body.style.cursor = "cell";
+        if(this.deleting)
+          document.body.style.cursor = "cell";
       },
       delMouseout: function(event) {
         document.body.style.cursor = "auto";
@@ -396,27 +397,17 @@
           for(let y1=y-4; y1 < y + 4; y1++) {
             let mouseIdx = y1*640+x1;
             let lineNum = lineIdx[mouseIdx];
-            if(lineNum && img_u8.data[mouseIdx] != PIX_OFF &&
-                (!lineDeleted[lineNum] || lineDeleted[lineNum] > this.undoValue)) {
+            if(lineNum && (!lineDeleted[lineNum] || lineDeleted[lineNum] > this.undoValue)) {
+              for(let i=0; i < lines.length; i++)
+                if(lineDeleted[i] && lineDeleted[i] > this.undoValue)
+                  delete lineDeleted[i];
               // delete line
-              if(this.undoValue < this.sliderUndo.max) {
-                for(let i = this.undoValue+1; i < this.deletedCount; i++)
-                  delete lineDeleted[lineNum];
-                this.deletedCount = this.undoValue;
-              }
+              this.deletedCount = this.undoValue;
+              this.deletedCount++;
               lineDeleted[lineNum]  = this.deletedCount;
               this.sliderUndo.max   = this.deletedCount
               this.sliderUndo.value = this.deletedCount;
-              this.deletedCount++;
-              let line = lines[lineNum];
-              for(let v = 0; v < line.length; v += 2) {
-                let x = line[v];
-                let y = line[v+1];
-                let idx = y*640+x;
-                img_u8.data[idx] = PIX_OFF;
-                imageData_u32[idx] = WHITE;
-              }
-              this.drawLines();
+              setTimeout( () => { this.drawLines() }, 50);
             }
           }
         }
