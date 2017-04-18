@@ -392,10 +392,11 @@
               newPixel = idx1+640; break;
           }
           var newXY;
-          if(newPixel) {
+          if(newPixel != null) {
             newXY = idx2xy(newPixel);
             img_u8.data[newPixel] = INSIDE_PIX;
           } else newXY = [];
+
           img_u8.data[idx1] = INSIDE_PIX;
           img_u8.data[idx2] = INSIDE_PIX;
           var line1 = findLineFromEndIdx(idx1);
@@ -415,6 +416,8 @@
             newLine = line2[1].concat(newXY, line1[1]);
           else if(line1[2] && line2[2])    // end1 | end2(rev)
             newLine = line1[1].concat(newXY, revLin(line2[1]));
+          img_u8.data[newLine[1]*640+newLine[0]]                               = END_PIX;
+          img_u8.data[newLine[newLine.length-1]*640+newLine[newLine.length-2]] = END_PIX;
           lines[line1[0]] = newLine;
           delete lines[line2[0]];
           return true;
@@ -444,6 +447,33 @@
             if(line) cnt++;
           return cnt;
         }
+        var lineIsALoop = (line) => {
+          let x1 = line[0];     let y1 = line[1];
+          let len = line.length;
+          let x2 = line[len-2]; let y2 = line[len-1];
+          return (Math.abs(x2-x1) < 2 && Math.abs(y2-y1) < 2);
+        }
+        var dumpLine = (line) => {
+          if(!line) {
+            console.log("dumpLine: Line undefined");
+            return;
+          }
+          console.log("Line is a loop:", lineIsALoop(line));
+          for(let v = 0; v < line.length; v += 2) {
+            let x = line[v];
+            let y = line[v+1];
+            let idx = y*640+x;
+            let type;
+            switch (img_u8.data[idx]) {
+              case PIX_OFF:     type = "PIX_OFF";       break;
+              case INSIDE_PIX:  type = "INSIDE_PIX";    break;
+              case END_PIX:     type = "END_PIX";       break;
+              case PIX_ON:      type = "PIX_ON";        break;
+              default:          type = "BAD_TYPE: " + img_u8.data[idx];
+            }
+            console.log("%3d: %3d,%3d, %s", v/2, x, y, type);
+          }
+        }
 
         var showLines = () => {
           var color = GREEN;
@@ -454,18 +484,25 @@
               let x = line[v];
               let y = line[v+1];
               let idx = y*640+x;
+
               if(img_u8.data[idx] != END_PIX &&
                  img_u8.data[idx] != INSIDE_PIX)
                 console.log("line val not END_PIX or INSIDE_PIX");
 
               if(img_u8.data[idx] == END_PIX) {
                 data_u32[idx] = (color == RED? CYAN : YELLOW);
-                if(v != 0 && v != line.length-2)
+                if(v != 0 && v != line.length-2) {
                   console.log("END_PIX in middle of line");
+                  dumpLine(line);
+                }
               }
               else {
-                if(v == 0 || v == line.length-2)
-                  console.log("INSIDE_PIX at end of line");
+                if(v == 0 || v == line.length-2) {
+                  if(!lineIsALoop(line)) {
+                    console.log("INSIDE_PIX at end of line");
+                    dumpLine(line);
+                  }
+                }
                 data_u32[idx] = color;
               }
             }
@@ -543,21 +580,21 @@
         }
         console.log("number of lines after scan:", lineCnt, ", actual:", actualLineCount());
 
-//         // find line pairs with close endpoints and join them
-// outer:  for(let idx = 0; idx < 640*480; idx++) {
-//           var n;
-//           if(img_u8.data[idx] != END_PIX) continue;
-//           for(n = idx-2*640-2; n <= idx-2*640+2; n++)
-//             if(joinCloseLines(idx, n)) continue outer;
-//           for(n = idx-1*640-2; n <= idx-1*640+2; n++)
-//             if(joinCloseLines(idx, n)) continue outer;
-//           for(n = idx-2;       n <= idx+2;       n++)
-//             if(joinCloseLines(idx, n)) continue outer;
-//           for(n = idx+1*640-2; n <= idx+1*640+2; n++)
-//             if(joinCloseLines(idx, n)) continue outer;
-//           for(n = idx+2*640-2; n <= idx+2*640+2; n++)
-//             if(joinCloseLines(idx, n)) continue outer;
-//         }
+        // find line pairs with close endpoints and join them
+outer:  for(let idx = 0; idx < 640*480; idx++) {
+          var n;
+          if(img_u8.data[idx] != END_PIX) continue;
+          for(n = idx-2*640-2; n <= idx-2*640+2; n++)
+            if(joinCloseLines(idx, n)) continue outer;
+          for(n = idx-1*640-2; n <= idx-1*640+2; n++)
+            if(joinCloseLines(idx, n)) continue outer;
+          for(n = idx-2;       n <= idx+2;       n++)
+            if(joinCloseLines(idx, n)) continue outer;
+          for(n = idx+1*640-2; n <= idx+1*640+2; n++)
+            if(joinCloseLines(idx, n)) continue outer;
+          for(n = idx+2*640-2; n <= idx+2*640+2; n++)
+            if(joinCloseLines(idx, n)) continue outer;
+        }
 
         console.log("number of lines at end:", lineCnt, ", actual:", actualLineCount());
         showLines();
