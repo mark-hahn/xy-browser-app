@@ -491,10 +491,11 @@
 
               if(img_u8.data[idx] == END_PIX) {
                 data_u32[idx] = (color == RED? CYAN : YELLOW);
-                if(v != 0 && v != line.length-2) {
-                  console.log("END_PIX in middle of line");
-                  dumpLine(line);
-                }
+                // this test fails when line crosses itself, which is OK
+                // if(v != 0 && v != line.length-2) {
+                //   console.log("END_PIX in middle of line");
+                //   dumpLine(line);
+                // }
               }
               else {
                 if(v == 0 || v == line.length-2) {
@@ -556,18 +557,7 @@
               if(!foundNbr) {
                 // at end of line
                 img_u8.data[lastIdx] = END_PIX;
-                // var line = lines[lineCnt];
-                // ignore lines less than 3 pixels long
-                // if(line.length < 6) {
-                //   for(let v = 0; v < line.length; v += 2) {
-                //     x = line[v];
-                //     y = line[v+1];
-                //     img_u8.data[y*640+x] = PIX_OFF;
-                //     data_u32[y*640+x] = BLACK;
-                //   }
-                //   delete lines[lineCnt];
-                // } else
-                  lineCnt++;
+                lineCnt++;
                 // showLines();
                 break;
               }
@@ -595,8 +585,37 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
           for(n = idx+2*640-2; n <= idx+2*640+2; n++)
             if(joinCloseLines(idx, n)) continue outer;
         }
+        console.log("number of lines after join:", lineCnt, ", actual:", actualLineCount());
 
-        console.log("number of lines at end:", lineCnt, ", actual:", actualLineCount());
+        let lineSizeThreshold = 20;
+        
+        // remove small lines
+        for(let i=0; i < lines.length; i++) {
+          let line = lines[i];
+          if(!line) continue;
+          let maxX = Math.max(); let maxY = Math.max();
+          let minX = Math.min(); let minY = Math.min();
+          for(let v = 0; v < line.length; v += 2) {
+            let x = line[v];
+            let y = line[v+1];
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+          }
+          if(Math.abs(maxX-minX) < lineSizeThreshold && Math.abs(maxY-minY) < lineSizeThreshold) {
+            for(let v = 0; v < line.length; v += 2) {
+              let x = line[v];
+              let y = line[v+1];
+              let idx = y*640+x;
+              img_u8.data[idx] = PIX_OFF;
+              data_u32[idx] = BLACK;
+            }
+            delete lines[i];
+          }
+        }
+        console.log("number of lines after pruning small lines:", lineCnt, ", actual:", actualLineCount());
+
         showLines();
         this.processing = false;
       }
