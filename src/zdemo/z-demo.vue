@@ -76,6 +76,12 @@
     color:black;
     font-weight:bold;
   }
+  #name-inp {
+    margin-top:15px;
+  }
+  #save-btn {
+    float:right;
+  }
   canvas {
     border: 1px solid gray;
   }
@@ -126,10 +132,14 @@
 
       <div id="left-saving" v-if="saving">
         <div>
-          Enter name for saved image.  Usually a person's name.
+          Enter name for the image.  Usually a person's name.
         </div>
         <div>
-          <input>
+          <input id="name-inp" v-bind:value="nameText">
+        </div>
+        <div>
+          <button class="button" type="button" id="save-btn"
+            v-on:click="saveClick">Save To Print Queue</button>
         </div>
       </div>
     </div>
@@ -143,7 +153,7 @@
       </div>
 
       <div id="buttons">
-        <button class="button" type="button" id="rightBtn"
+        <button class="button" type="button" id="rightBtn" v-if="!saving"
           v-on:click="rightClick">{{rightBtnText}}</button>
           <button class="button" type="button" id="leftBtn" v-if="!capturing"
           v-on:click="leftClick">Restart</button>
@@ -206,7 +216,7 @@
         pruning: false,
         deleting: false,
         saving: false,
-        name: "Untitled",
+        nameText: "",
         rightBtnText: "Snap Image",
         sliderLow: {
 					value: 20, width: 255, height: 8, dotSize: 20, min: 0, max: 200, interval: 1,
@@ -380,6 +390,9 @@
               lineIdx[idx] = i;
             }
           }
+        } else if (this.deleting) {
+          this.deleting = false;
+          this.saving = true;
         }
       },
       delMouseover: function(event) {
@@ -416,6 +429,9 @@
         console.log("undo:", val);
         this.undoValue = val;
         this.drawLines();
+      },
+      saveClick: function(val) {
+        console.log("save:", val);
       },
 
       // this runs when video is first frozen
