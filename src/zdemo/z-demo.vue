@@ -132,7 +132,7 @@
 
       <div id="left-saving" v-if="saving">
         <div>
-          Enter name for the image.  Usually a person's name.
+          Name the image.  Usually it would be your name.
         </div>
         <div>
           <input id="name-inp" v-bind:value="nameText">
@@ -679,6 +679,36 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
             if(joinCloseLines(idx, n)) continue outer;
         }
         console.log("number of lines after join:", actualLineCount());
+
+        // copy lines with media filter and remove duplicates
+        let newLines = [];
+        for(let i=0; i < lines.length; i++) {
+          var line = lines[i];
+          if(!line) continue;
+
+          // median filter of x and y
+          let newLine = [0,0];
+          for(let j=2; j < line.length-2; j++) {
+            let pix3 = [line[j-2], line[j], line[j+2]].
+            sort(pix3, (a,b) => a-b);
+            newLine = newLine.concat(pix3[1]);
+          }
+          // remove duplicates
+          let deDupLine = [];
+          for(let j=2; j < newLine.length; j += 2) {
+            if(newLine[j]   != newLine[j-2] ||
+               newLine[j+1] != newLine[j+1-2])
+              deDupLine = deDupLine.concat(newLine[j],newLine[j+1]);
+          }
+          // remove ends
+          deDupLine.splice(0,2);
+          deDupLine.splice(-2,2);
+
+          // add new line
+          newLines[newLines.length] = deDupLine;
+        }
+        lines = newLines;
+        console.log("number of lines after filter:", actualLineCount());
 
         // done processing
         lineTooSmall = [];
