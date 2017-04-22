@@ -174,6 +174,8 @@
 <script>
   import vueSlider from 'vue-slider-component';
 
+let debugLine = null;
+
   // img_u8.data values
   const PIX_OFF    = 0;
   const INSIDE_PIX = 1;
@@ -190,7 +192,7 @@
 
   var video, canvas, ctx, img_u8, imageData,
       lines = [], lineCnt = 0, lineTooSmall = [], lineIdx = [],
-      lineDeleted = [], imageData_u32;
+      lineDeleted = [], imageData_u32, paths = [];
 
   var actualLineCount = () => {
     var cnt = 0;
@@ -199,6 +201,30 @@
       if(line && !lineTooSmall[i] && !lineDeleted[i]) cnt++;
     }
     return cnt;
+  }
+
+  // dist = Math.abs((x2-x1)*(y1-y)-(x1-x)*(y2-y1)) /
+  //        Math.sqrt((x2-x1)^2 + (y2-y1)^2);
+  // line in is from lftIdx to end
+
+  const maxDist = 3;
+
+  let firstPointFarFromLine = (line, lftIdx) => {
+    let rgtIdx = line.length;
+    let x1 = line[lftIdx],   y1 = line[lftIdx+1];
+    let x2 = line[rgtIdx-2], y2 = line[rgtIdx-1];
+    let xdif = x2-x1, xdifsq = xdif * xdif;
+    let ydif = y2-y1, ydifsq = ydif * ydif;
+    let sqrtdifsq = Math.sqrt(xdifsq + ydifsq);
+    let dist2line = (x,y) =>
+        Math.abs(xdif*(y1-y)-ydif*(x1-x))/sqrtdifsq;
+    for(let i=lftIdx+2; i < rgtIdx-2; i+=2) {
+      let dist = dist2line(line[i], line[i+1]);
+      if(dist > maxDist) {
+        return i-2;
+      }
+    }
+    return rgtIdx;
   }
 
   export default {
@@ -277,6 +303,18 @@
             let y = line[v+1];
             imageData_u32[y*640+x] = BLACK;
           }
+        }
+        ctx.putImageData(imageData, 0, 0);
+      },
+      drawPaths: function() {
+        for(let path of paths) {
+          for(let vec of path) {
+            let x1, y1, x2, y2;
+            [x1, y1, x2, y2] = vec;
+            imageData_u32[y1*640+x1] = GREEN;
+            imageData_u32[y2*640+x2] = RED;
+          }
+          break;
         }
         ctx.putImageData(imageData, 0, 0);
       },
@@ -430,8 +468,33 @@
         this.undoValue = val;
         this.drawLines();
       },
+
       saveClick: function(val) {
-        console.log("save:", val);
+        let newLines = [];
+        for(let i=0; i < lines.length; i++) {
+          let line = lines[i];
+          if(!line || !line.length || lineTooSmall[i] ||
+             (lineDeleted[i] && lineDeleted[i] <= this.undoValue))
+            continue;
+          newLines[newLines.length] = line;
+        }
+        paths = [];
+        let lenSum = 0;
+        for(let j=0; j < newLines.length; j++) {
+          let newLine = newLines[j];
+          let lftIdx = 0, path = [];
+          while (true) {
+            let rgtIdx = firstPointFarFromLine(newLine, lftIdx);
+            path[path.length] = [newLine[lftIdx], newLine[lftIdx+1], newLine[rgtIdx-2], newLine[rgtIdx-1]];
+            lenSum += (rgtIdx - lftIdx);
+            if(rgtIdx == newLine.length) break;
+            lftIdx = rgtIdx;
+          }
+          paths[paths.length] = path;
+        }
+        this.drawPaths();
+        console.log("paths created (count, avg len, first, last):",
+                     paths.length, Math.round(lenSum/paths.length), paths[0], paths[paths.length-1]);
       },
 
       // this runs when video is first frozen
@@ -689,10 +752,11 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
           // median filter of x and y
           let newLine = [0,0];
           for(let j=2; j < line.length-2; j++) {
-            let pix3 = [line[j-2], line[j], line[j+2]].
-            sort(pix3, (a,b) => a-b);
+            let pix3 = [line[j-2], line[j], line[j+2]];
+            pix3.sort((a,b) => a-b);
             newLine = newLine.concat(pix3[1]);
           }
+
           // remove duplicates
           let deDupLine = [];
           for(let j=2; j < newLine.length; j += 2) {
@@ -709,6 +773,8 @@ outer:  for(let idx = 0; idx < 640*480; idx++) {
         }
         lines = newLines;
         console.log("number of lines after filter:", actualLineCount());
+
+        this.drawLines();
 
         // done processing
         lineTooSmall = [];
