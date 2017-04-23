@@ -226,7 +226,7 @@ let debugLine = null;
     return [maxIdx, maxDist];
   }
 
-const MAX_DIST = 1.6;
+const MAX_DIST = 1.3;
 
   let bisectLine = (path, line, lftIdx, rgtIdx) => {
     let [maxIdx, maxDist] = firstPointFarFromLine(line, lftIdx, rgtIdx);
@@ -318,14 +318,21 @@ const MAX_DIST = 1.6;
         ctx.putImageData(imageData, 0, 0);
       },
       drawPaths: function() {
-        for(let path of paths) {
-          for(let i = 0; i < path.length; i += 2) {
-            let x= path[i]
-            let y= path[i+1]
-            imageData_u32[y*640+x] = RED;
-          }
-        }
+        let totalVectors = 0;
+        imageData_u32.fill(WHITE);
         ctx.putImageData(imageData, 0, 0);
+        ctx.strokeStyle = 'rgb(0, 0, 0)';
+        ctx.lineWidth = 1;
+        for(let path of paths) {
+          ctx.beginPath();
+          ctx.moveTo(path[0],path[1]);
+          for(let i = 2; i < path.length; i += 2) {
+            ctx.lineTo(path[i], path[i+1]);
+            totalVectors++;
+          }
+          ctx.stroke();
+        }
+        console.log("totalVectors:", totalVectors);
       },
       demo_app: function () {
         ctx = canvas.getContext('2d');
