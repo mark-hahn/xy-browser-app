@@ -207,10 +207,7 @@ let debugLine = null;
   //        Math.sqrt((x2-x1)^2 + (y2-y1)^2);
   // line in is from lftIdx to end
 
-  const maxDist = 3;
-
-  let firstPointFarFromLine = (line, lftIdx) => {
-    let rgtIdx = line.length;
+  let firstPointFarFromLine = (line, lftIdx, rgtIdx) => {
     let x1 = line[lftIdx],   y1 = line[lftIdx+1];
     let x2 = line[rgtIdx-2], y2 = line[rgtIdx-1];
     let xdif = x2-x1, xdifsq = xdif * xdif;
@@ -218,13 +215,27 @@ let debugLine = null;
     let sqrtdifsq = Math.sqrt(xdifsq + ydifsq);
     let dist2line = (x,y) =>
         Math.abs(xdif*(y1-y)-ydif*(x1-x))/sqrtdifsq;
-    for(let i=lftIdx+2; i < rgtIdx-2; i+=2) {
-      let dist = dist2line(line[i], line[i+1]);
+    let maxDist = Math.max(), maxIdx;
+    for(let idx=lftIdx+2; idx < rgtIdx-2; idx += 2) {
+      let dist = dist2line(line[idx], line[idx+1]);
       if(dist > maxDist) {
-        return i-2;
+        maxDist = dist;
+        maxIdx = idx;
       }
     }
-    return rgtIdx;
+    return [maxIdx, maxDist];
+  }
+
+const MAX_DIST = 1.6;
+
+  let bisectLine = (path, line, lftIdx, rgtIdx) => {
+    let [maxIdx, maxDist] = firstPointFarFromLine(line, lftIdx, rgtIdx);
+    if(maxDist <= MAX_DIST) {
+      if(rgtIdx < line.length) path[path.length] = rgtIdx;
+    } else {
+      bisectLine(path, line, lftIdx, maxIdx);
+      bisectLine(path, line, maxIdx, rgtIdx);
+    }
   }
 
   export default {
@@ -308,13 +319,11 @@ let debugLine = null;
       },
       drawPaths: function() {
         for(let path of paths) {
-          for(let vec of path) {
-            let x1, y1, x2, y2;
-            [x1, y1, x2, y2] = vec;
-            imageData_u32[y1*640+x1] = GREEN;
-            imageData_u32[y2*640+x2] = RED;
+          for(let i = 0; i < path.length; i += 2) {
+            let x= path[i]
+            let y= path[i+1]
+            imageData_u32[y*640+x] = RED;
           }
-          break;
         }
         ctx.putImageData(imageData, 0, 0);
       },
@@ -481,16 +490,12 @@ let debugLine = null;
         paths = [];
         let lenSum = 0;
         for(let j=0; j < newLines.length; j++) {
-          let newLine = newLines[j];
-          let lftIdx = 0, path = [];
-          while (true) {
-            let rgtIdx = firstPointFarFromLine(newLine, lftIdx);
-            path[path.length] = [newLine[lftIdx], newLine[lftIdx+1], newLine[rgtIdx-2], newLine[rgtIdx-1]];
-            lenSum += (rgtIdx - lftIdx);
-            if(rgtIdx == newLine.length) break;
-            lftIdx = rgtIdx;
-          }
-          paths[paths.length] = path;
+          let newLine = newLines[j], midpoints = [];
+          bisectLine(midpoints, newLine, 0, newLine.length);
+          let path = [newLine[0], newLine[1]];
+          for(let idx of midpoints)
+            path = path.concat(newLine[idx], newLine[idx+1]);
+          paths[paths.length] = path.concat(newLine[newLine.length-2], newLine[newLine.length-1]);
         }
         this.drawPaths();
         console.log("paths created (count, avg len, first, last):",
