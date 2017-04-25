@@ -240,7 +240,7 @@ const MAX_DIST = 1.3;
   const imageWid     = 160; // canvas in mm
   const imageOfsX    = 70;  // in hw ref frame mm
   const imageOfsY    = 70;
-   const fullStepsMM  = 5;
+  const fullStepsMM  = 5;
   const ustepFactor  = 4, ustep = 2;
   const accel = 32, accellBits = 5;
   const pulsesPerMm  = ustepFactor * fullStepsMM;       // 20
@@ -304,8 +304,8 @@ const MAX_DIST = 1.3;
     }
     if(pulses == 0) usecs = accelPulses = accelPulses2 = pps = 0;
     if(pulses == 0 && ppsIn > pps10mmSec || (accelPulses + accelPulses2) > pulses) {
-      console.log("error: cannot chg pos from", pix1, "to", pix2,
-                  "with pps from", ppsIn, "to", pps, "in", pulses, "pulses");
+      // console.log("error: cannot chg pos from", pix1, "to", pix2,
+      //             "with pps from", ppsIn, "to", pps, "in", pulses, "pulses");
       // debugger;
       return [null, accelPulses, accelUsecs, accelPulses2, accelUsecs2];
     }
@@ -331,14 +331,36 @@ const MAX_DIST = 1.3;
     exportData += 'v\n';
     return 0.5e6; // half-sec to drop pen
   }
+
   let emitVectorOrDelay = (action) => {
     let [type, axis, pps, dir, usecs, pulseCount] = action;
-    if(type == 'delay')
-      exportData += (axis == Y ? 'y' : 'x') +
-                    (dir == fwd ? 'F' : 'B') + usecs + '\n';
+    if(type == 'delay') {
+      while (usecs > 0) {
+        let us = usecs;
+        if(us > 65535) us = 64000;
+        usecs -= us;
+        exportData += (axis == Y ? 'E' : 'D') + us + '\n';
+      }
+    }
     else {
-      exportData += (axis == Y ? 'Y' : 'X') +
-                    (dir == fwd ? 'F' : 'B') + pps + ',' + pulseCount + '\n';
+      if(pps < 64) {
+        // use arbitrary single 1ms pulses with delay after each
+        pps = 1000;
+        usecs = Math.floor(usecs / pulseCount) - 1000;
+        for(let i=0; i < pulseCount; i++) {
+          exportData += (axis == Y ? 'Y' : 'X')  +
+                        (dir == fwd ? 'F' : 'B') + pps + ',' + 1 + '\n';
+          exportData += (axis == Y ? 'E' : 'D')  + usecs + '\n';
+        }
+        return;
+      }
+      while(pulseCount > 0) {
+        let p = pulseCount;
+        if(p > 4095) p = 3000;
+        pulseCount -= p;
+        exportData += (axis == Y ? 'Y' : 'X')  +
+                      (dir == fwd ? 'F' : 'B') + pps + ',' + p + '\n';
+      }
     }
   }
 
@@ -449,7 +471,8 @@ const MAX_DIST = 1.3;
       usecs += emitLift();
     }
     usecs += emitHome();
-    // console.log("exportData:", exportData);
+    console.log("exportData:", exportData);
+    console.log("file size(Kb):",  Math.round(exportData.length/1024));
     console.log("printTime(mins):", Math.round(usecs / 60e6));
   }
 
