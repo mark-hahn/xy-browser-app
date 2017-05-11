@@ -242,7 +242,7 @@ const MAX_DIST = 1.3;
   const imageOfsY    = 70;
   const fullStepsMM  = 5;
   const ustepFactor  = 4, ustep = 2;
-  const accel = 32, accellBits = 5;
+  const accel = 2;
   const pulsesPerMm  = ustepFactor * fullStepsMM;       // 20
   const tgtPps       = tgtMmSec * pulsesPerMm;          // 1000
   const tgtUsecs     = pps2usecs(tgtPps);               // 1 ms
@@ -261,11 +261,12 @@ const MAX_DIST = 1.3;
     let lastUsecs = pps2usecs(pps1), currentPps = pps1;
     let pulseCount = 0, usecs = 0;
     while(true) {
-      let ppsChange = lastUsecs >> (13 - ustep - accellBits);   // lastUsecs >> 6
+      let ppsChange = lastUsecs >> (10 - accel - ustep); // >> 6
+      if(ppsChange > 327) ppsChange == 327;
       if(pps2 < pps1) {
         // deccelerate
         if(ppsChange == 0 || ppsChange > currentPps || (currentPps - ppsChange) <= pps2)
-          return [pulseCount, usecs];
+          return [pulseCount, lastUsecs];
         else {
           pulseCount++;
           currentPps -= ppsChange;
@@ -334,33 +335,13 @@ const MAX_DIST = 1.3;
 
   let emitVectorOrDelay = (action) => {
     let [type, axis, pps, dir, usecs, pulseCount] = action;
-    if(type == 'delay') {
-      while (usecs > 0) {
-        let us = usecs;
-        if(us > 65535) us = 64000;
-        usecs -= us;
-        exportData += (axis == Y ? 'E' : 'D') + us + '\n';
-      }
-    }
+    if(type == 'delay')
+      exportData += (axis == Y ? 'E' : 'D') + usecs + '\n';
     else {
-      if(pps < 64) {
-        // use arbitrary single 1ms pulses with delay after each
-        pps = 1000;
-        usecs = Math.floor(usecs / pulseCount) - 1000;
-        for(let i=0; i < pulseCount; i++) {
-          exportData += (axis == Y ? 'Y' : 'X')  +
-                        (dir == fwd ? 'F' : 'B') + pps + ',' + 1 + '\n';
-          exportData += (axis == Y ? 'E' : 'D')  + usecs + '\n';
-        }
-        return;
-      }
-      while(pulseCount > 0) {
-        let p = pulseCount;
-        if(p > 4095) p = 3000;
-        pulseCount -= p;
-        exportData += (axis == Y ? 'Y' : 'X')  +
-                      (dir == fwd ? 'F' : 'B') + pps + ',' + p + '\n';
-      }
+      // pps is uint16_t fixed-point 13.3
+      pps = Math.floor(pps*8);
+      exportData += (axis == Y ? 'Y' : 'X')  +
+                    (dir == fwd ? 'F' : 'B') + pulseCount + ',' + pps + '\n';
     }
   }
 
@@ -450,7 +431,6 @@ const MAX_DIST = 1.3;
   let exportDrawing = () => {
     emitSettings();
     let usecs = 0;
-    usecs += emitLift();
     usecs += emitHome();
     // -1 is special code for starting at home
     let lastX = -1, lastY = -1;
