@@ -244,14 +244,14 @@ const MAX_DIST = 1.3;
   const imageOfsY    = 40 * distUnit;
   const scale = ((5.5 * 25.4) * distUnit) / 640; // drawing is 5.5" wide;
   const accel = 2;
-  const jerkMmPerSec = 10;
+  const jerk  = 10;
   const X = 0, Y = 1;
   const fwd = 1, still = 0, bwd = -1;
 
   let exportData = "";
 
   let emitAccel = () => {
-    exportData += 'a' + accel + '\n';
+    exportData += 'A' + accel + '\n';
   }
   let emitHome = () => {
     exportData += 'H\n';
@@ -266,20 +266,20 @@ const MAX_DIST = 1.3;
     return 0.5e6; // half-sec to drop pen
   }
   let emitDelay = (axis, usecs) => {
-    exportData += (axis == Y ? 'E' : 'D') + usecs + '\n';
+    exportData += (axis == Y ? 'E' : 'D') + Math.round(usecs) + '\n';
   }
   let lastUstep = [null, null];
   let emitVector = (axis, dir, pulseCount, pps, ustep) => {
     // pps is uint16_t fixed-point 13.3
     if(ustep != lastUstep[axis])
-      exportData += 'u' + ustep + '\n';
+      exportData += (axis == X ? 'U' : 'V') + ustep + '\n';
     lastUstep[axis] = ustep;
-    pps = Math.floor(pps*8);
     exportData += (axis == Y ? 'Y' : 'X')  +
-                  (dir == fwd ? 'F' : 'B') + pulseCount + ',' + pps + '\n';
+                  (dir == fwd ? 'F' : 'B') + pulseCount + ',' +
+                  Math.round(pps*8) + '\n';
   }
 
-  let accellPulsesTime = (pps1, pps2, ustep) => {
+  let accelPulsesTime = (pps1, pps2, ustep) => {
     if(pps1 == pps2) return [0,0];
     let lastUsecs = pps2usecs(pps1), currentPps = pps1;
     let pulseCount = 0, usecs = 0;
@@ -312,7 +312,7 @@ const MAX_DIST = 1.3;
   }
 
   // calculate ustep, pulsecount, pps, and usecs for distance and in/out vel
-  // dist is in units of mm from home pos, vel is mm/sec
+  // dist is mm, vel is mm/sec
   // if pps change cannot be made in given distance, then return null
   let chkAccelInDist = (dist, vel1, vel2, lastUstep, vecStop) => {
     let ustep, usecs = 0, extraVec = null;
@@ -328,35 +328,34 @@ const MAX_DIST = 1.3;
       let ppsJerk = fullStepsMM * (jerk << ustep);
       let stepsPerMM = fullStepsMM << ustep;
 
-      [accelPulses, accelUsecs] = accellPulsesTime(pps1, pps2, ustep);
+      [accelPulses, accelUsecs] = accelPulsesTime(pps1, pps2, ustep);
       let accelDist = accelPulses / stepsPerMM, accelDist2 = 0;
       if(vecStop) {
-        [accelPulses2, accelUsecs2] = accellPulsesTime(pps2, ppsJerk, ustep);
+        [accelPulses2, accelUsecs2] = accelPulsesTime(pps2, ppsJerk, ustep);
         accelDist2 = accelPulses2 / stepsPerMM;
       }
-      if((accelDist + accelDist2 <= dist) {
+      if(accelDist + accelDist2 <= dist) {
         if(vecStop) extraVec = [accelDist2, accelUsecs2];
         return [accelDist, accelUsecs, ustep, vel2, extraVec];
       }
-    }
-    if(vecStop) {
-      vel2 -= jerk;
-      if(vel2 >= jerk) {
-        ustep = 6;
-        continue;
+      if(vecStop) {
+        vel2 -= jerk;
+        if(vel2 >= jerk) {
+          ustep = 6;
+          continue;
+        }
       }
     }
     return null;
   }
 
   let planAxis = (actionArr) => {
-    let lastUstep = null, usecs = 0,
+    let lastUstep = null, lastDir = null, usecs = 0;
     for(let aIdx = 0; aIdx < actionArr.length;) {
       let a = actionArr[aIdx];
-      if(a.vel == 0) {aIdx++; continue;}
+      if(a.vel == 0 || a.extra) {aIdx++; continue;}
 
       let vecStop = (aIdx == actionArr.length-1 || actionArr[aIdx+1].vel == 0);
-      let dir = ((a.pos2 - a.pos1) >= 0 ? fwd : bwd);
       let dist = Math.abs(a.pos2 - a.pos1);
       let lastVel   = (aIdx == 0 ? 0    : actionArr[aIdx-1].vel);
       let lastUstep = (aIdx == 0 ? null : actionArr[aIdx-1].ustep);
@@ -374,21 +373,19 @@ const MAX_DIST = 1.3;
         continue; // restart at previous vec with new closer velocity
       }
       let [accelDist, accelUsecs, ustep, vel, extraVec] = chk;
+      let accelDist2 = 0, accelUsecs2 = 0;
       if(vecStop) [accelDist2, accelUsecs2] = extraVec;
-      else accelDist2 = accelUsecs2 = 0;
 
       let stepsPerMM = fullStepsMM << ustep;
       let nonAccelDist = dist - accelDist - accelDist2;
-      a.usecs = accelUsecs + accelUsecs2 + (nonAccelDist * vel * 1e6);
+      a.usecs = accelUsecs + accelUsecs2 + (nonAccelDist / (distUnit*vel)) * 1e6;
       a.ustep = ustep;
-      a.pulseCount = Math.round(nonAccelDist * stepsPerMM);
+      a.pulseCount = Math.round((nonAccelDist/distUnit) * stepsPerMM);
       a.pps = Math.round(vel * stepsPerMM);
       if(vecStop) {
         let ppsJerk = fullStepsMM * (jerk << ustep);
-        actionArr.splice(aIdx, 0,
-            {extra: true, ustep,
-             pulseCount: Math.floor(accelDist2 * stepsPerMM),
-             pps: ppsJerk});
+        actionArr.splice(aIdx+1, 0,
+            {extra: true, pulseCount: Math.floor(accelDist2 * stepsPerMM), pps: ppsJerk});
       }
       if(++aIdx >= actionArr.length) break;
     }
@@ -398,24 +395,37 @@ const MAX_DIST = 1.3;
   let emitPath = (path) => {
     // fill action array with initial values for X
     let lastDir = still, actionIdx=0, actionX = [];
-    for(let pathIdx=0; pathIdx < path.length; pathIdx+=2) {
+    for(let pathIdx=0; pathIdx < path.length-2; pathIdx += 2) {
       let x1 = path[pathIdx], x2 = path[pathIdx+2];
-      x1 = (639 - x1) * scale + imageOfsX;
+      if(x1 == -1) x1 = 0;
+      else x1 = (639 - x1) * scale + imageOfsX;
       x2 = (639 - x2) * scale + imageOfsX;
-      if(x1 != x2)
-        actionX[actionIdx++] = {pos1: x1, pos2: x2, vel: tgtMmSec};
+      let dir = ((x2 - x1) > 0 ? fwd : bwd);
+      if(x1 == x2)
+        actionX[actionIdx++] = {vel: 0, usecs:0};
+      else if(lastDir != still && lastDir != dir)
+        actionX[actionIdx++] = {pos1: x1, pos2: x2, vel: jerk, dir};
       else
-        actionX[actionIdx++] = {vel: 0};
+        actionX[actionIdx++] = {pos1: x1, pos2: x2, vel: tgtMmSec, dir};
+      lastDir = dir;
     }
     if(!planAxis(actionX)) return -1;
 
     // fill action array with initial values for Y
     let actionY = []; lastDir = still; actionIdx=0;
-    for(let pathIdx=0; pathIdx < path.length; pathIdx+=2) {
+    for(let pathIdx=0; pathIdx < path.length-2; pathIdx += 2) {
       let y1 = path[pathIdx+1], y2 = path[pathIdx+3];
-      y1 = y1 * scale + imageOfsY;
+      if(y1 == -1) y1 = 0;
+      else y1 = y1 * scale + imageOfsY;
       y2 = y2 * scale + imageOfsY;
-      actionY[actionIdx++] = {pos1: y1, pos2: y2, pps: tgtPps};
+      let dir = ((y2 - y1) > 0 ? fwd : bwd);
+      if(y1 == y2)
+        actionY[actionIdx++] = {vel: 0, usecs:0};
+      else if(lastDir != still && lastDir != dir)
+        actionY[actionIdx++] = {pos1: y1, pos2: y2, vel: jerk, dir};
+      else
+        actionY[actionIdx++] = {pos1: y1, pos2: y2, vel: tgtMmSec, dir};
+      lastDir = dir;
     }
     if(!planAxis(actionY)) return -1;
 
@@ -429,11 +439,11 @@ const MAX_DIST = 1.3;
 
       let usecs = Math.max(ax.usecs, ay.usecs);
       pathUsecs += usecs;
-      if(ax.pulseCount == 0)
-        emitDelay(X, ax.usecs);
+      if(ax.vel == 0)
+        emitDelay(X, usecs);
       else {
         // this assumes accel scales with pps, which isn't exact
-        if(ax.usecs <= usecs) ax.pps = Math.round(ax.pps * (ax.usecs/usecs));
+        ax.pps = Math.round(ax.pps * (ax.usecs/usecs));
         emitVector(X, ax.dir, ax.pulseCount, ax.pps, ax.ustep);
         if(haveExtraX) {
           let dir = ax.dir, ustep = ax.ustep;
@@ -441,8 +451,8 @@ const MAX_DIST = 1.3;
           emitVector(X, dir, ax.pulseCount, ax.pps, ustep);
         }
       }
-      if(ay.pulseCount == 0)
-        emitDelay(X, ay.usecs);
+      if(ay.vel == 0)
+        emitDelay(Y, usecs);
       else {
         // this assumes accel scales with pps, which isn't exact
         if(ay.usecs <= usecs) ay.pps = Math.round(ay.pps * (ay.usecs/usecs));
@@ -450,7 +460,7 @@ const MAX_DIST = 1.3;
         if(haveExtraY) {
           let dir = ay.dir, ustep = ay.ustep;
           ay = actionY[yIdx+1];
-          emitVector(X, dir, ay.pulseCount, ay.pps, ustep);
+          emitVector(Y, dir, ay.pulseCount, ay.pps, ustep);
         }
       }
       xIdx++; if(haveExtraX) xIdx++;
@@ -464,8 +474,10 @@ const MAX_DIST = 1.3;
     let usecs = 0;
     usecs += emitHome();
     // -1 is special code for starting at home
-    let lastX = 0, lastY = 0;
+    let lastX = -1, lastY = -1;
+    let pathCount = paths.length;
     for(let path of paths)  {
+      // console.log("pathCount", pathCount--);
       let planUsecs = emitPath([lastX, lastY, path[0], path[1]]);
       if (planUsecs == -1) break;
       usecs += planUsecs;
