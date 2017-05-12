@@ -242,9 +242,10 @@ const MAX_DIST = 1.3;
   const distUnit     = 32*fullStepsMM;
   const imageOfsX    = 40 * distUnit;  // 40 mm
   const imageOfsY    = 40 * distUnit;
-  const scale = ((5.5 * 25.4) * distUnit) / 640; // drawing is 5.5" wide;
+  const scale = Math.floor(((5.5 * 25.4) * distUnit) / 640); // drawing is 5.5" wide
   const accel = 2;
   const jerk  = 10;
+  const maxPps = 3000;
   const X = 0, Y = 1;
   const fwd = 1, still = 0, bwd = -1;
 
@@ -266,15 +267,15 @@ const MAX_DIST = 1.3;
     return 0.5e6; // half-sec to drop pen
   }
   let emitDelay = (axis, usecs) => {
-    exportData += (axis == Y ? 'E' : 'D') + Math.round(usecs) + '\n';
+    exportData += (axis == X ? 'D' : 'E') + Math.round(usecs) + '\n';
   }
-  let lastUstep = [null, null];
-  let emitVector = (axis, dir, pulseCount, pps, ustep) => {
+  let emitUstep = (axis, ustep, pulseCount, pps) => {
+    exportData += (axis == X ? 'U' : 'V') + ustep + ',' +
+                   pulseCount + ',' + Math.round(pps*8) + '\n';
+  }
+  let emitVector = (axis, dir, pulseCount, pps) => {
     // pps is uint16_t fixed-point 13.3
-    if(ustep != lastUstep[axis])
-      exportData += (axis == X ? 'U' : 'V') + ustep + '\n';
-    lastUstep[axis] = ustep;
-    exportData += (axis == Y ? 'Y' : 'X')  +
+    exportData += (axis == X ? 'X' : 'Y')  +
                   (dir == fwd ? 'F' : 'B') + pulseCount + ',' +
                   Math.round(pps*8) + '\n';
   }
@@ -314,53 +315,63 @@ const MAX_DIST = 1.3;
   // calculate ustep, pulsecount, pps, and usecs for distance and in/out vel
   // dist is mm, vel is mm/sec
   // if pps change cannot be made in given distance, then return null
-  let chkAccelInDist = (dist, vel1, vel2, lastUstep, vecStop) => {
-    let ustep, usecs = 0, extraVec = null;
+  let chkAccelInDist = (x1, x2, vel1, vel2, lastUstep, vecStop) => {
+    let dist = Math.abs(x2-x1);
     let accelPulses = 0, accelUsecs = 0, accelPulses2 = 0, accelUsecs2 = 0;
     vel1 = Math.max(vel1, jerk);
     vel2 = Math.max(vel2, jerk);
-    for(ustep = 5; ustep >= 0; ustep--) {
-      if(ustep-1 == lastUstep) ustep--;
+
+    for(let ustep = 5; ustep >= 0; ustep--) {
+      if(ustep == lastUstep+1) ustep--;
       let pps1 = fullStepsMM * (vel1 << ustep);
       let pps2 = fullStepsMM * (vel2 << ustep);
-      if(pps1 > 3000 || pps2 > 3000) continue;
-
+      if(pps1 > maxPps || pps2 > maxPps) continue;
+      // check if new ustep is compatible with old
+      let ustepPulses = 0, ustepDist = 0, ustepUsecs = 0;
+      if(ustep < lastUstep) {
+        let lastDistPerPulse = (1 << (5-lastUstep));
+        while(((x1 + ustepDist) & (0x1f >> ustep)) != 0) {
+          ustepPulses++;
+          ustepDist = ustepPulses * lastDistPerPulse;
+          if(x2 < x1) ustepDist = -ustepDist;
+          ustepUsecs = ustepPulses * pps2usecs(pps1);
+        }
+      }
       let ppsJerk = fullStepsMM * (jerk << ustep);
       let stepsPerMM = fullStepsMM << ustep;
-
       [accelPulses, accelUsecs] = accelPulsesTime(pps1, pps2, ustep);
       let accelDist = accelPulses / stepsPerMM, accelDist2 = 0;
       if(vecStop) {
         [accelPulses2, accelUsecs2] = accelPulsesTime(pps2, ppsJerk, ustep);
         accelDist2 = accelPulses2 / stepsPerMM;
       }
-      if(accelDist + accelDist2 <= dist) {
-        if(vecStop) extraVec = [accelDist2, accelUsecs2];
-        return [accelDist, accelUsecs, ustep, vel2, extraVec];
+      if(ustepDist + accelDist + accelDist2 <= dist) {
+        return [ustepPulses, ustepDist, ustepUsecs,
+                accelDist,  accelUsecs, ustep, vel2,
+                accelDist2, accelUsecs2];
       }
-      if(vecStop) {
-        vel2 -= jerk;
-        if(vel2 >= jerk) {
-          ustep = 6;
-          continue;
-        }
+      // failed to fit change in dist, try slower velocity
+      vel2 -= jerk;
+      if(vel2 >= jerk) {
+        ustep = 6;
+        continue;
       }
     }
     return null;
   }
 
   let planAxis = (actionArr) => {
-    let lastUstep = null, lastDir = null, usecs = 0;
     for(let aIdx = 0; aIdx < actionArr.length;) {
       let a = actionArr[aIdx];
       if(a.vel == 0 || a.extra) {aIdx++; continue;}
 
-      let vecStop = (aIdx == actionArr.length-1 || actionArr[aIdx+1].vel == 0);
+      let vecStop = aIdx == actionArr.length-1 || actionArr[aIdx+1].vel == 0 ||
+                                                  actionArr[aIdx+1].dir != a.dir;
       let dist = Math.abs(a.pos2 - a.pos1);
       let lastVel   = (aIdx == 0 ? 0    : actionArr[aIdx-1].vel);
       let lastUstep = (aIdx == 0 ? null : actionArr[aIdx-1].ustep);
 
-      let chk = chkAccelInDist(dist, lastVel, a.vel, lastUstep, vecStop);
+      let chk = chkAccelInDist(a.pos1, a.pos2, lastVel, a.vel, lastUstep, vecStop);
       if(!chk) {
         if(aIdx == 0 || actionArr[aIdx-1].vel == 0) {
           console.log("failed to process action array at:", aIdx, actionArr);
@@ -372,25 +383,29 @@ const MAX_DIST = 1.3;
         a.vel = (a.vel + curVel) / 2;
         continue; // restart at previous vec with new closer velocity
       }
-      let [accelDist, accelUsecs, ustep, vel, extraVec] = chk;
-      let accelDist2 = 0, accelUsecs2 = 0;
-      if(vecStop) [accelDist2, accelUsecs2] = extraVec;
+      let  [ustepPulses, ustepDist, ustepUsecs,
+            accelDist,  accelUsecs, ustep, vel,
+            accelDist2, accelUsecs2] = chk;
 
       let stepsPerMM = fullStepsMM << ustep;
-      let nonAccelDist = dist - accelDist - accelDist2;
-      a.usecs = accelUsecs + accelUsecs2 + (nonAccelDist / (distUnit*vel)) * 1e6;
-      a.ustep = ustep;
-      a.pulseCount = Math.round((nonAccelDist/distUnit) * stepsPerMM);
-      a.pps = Math.round(vel * stepsPerMM);
-      if(vecStop) {
+      let nonAccelDist = dist - ustepDist - accelDist - accelDist2;
+      a.usecs = ustepUsecs + accelUsecs + accelUsecs2 +
+                (nonAccelDist / (distUnit*vel)) * 1e6;
+      a.ustep       = ustep;
+      a.pulseCount  = Math.round((nonAccelDist/distUnit) * stepsPerMM);
+      a.pps         = vel * stepsPerMM;
+      a.ustepPulses = ustepPulses;
+      if(accelDist2) {
         let ppsJerk = fullStepsMM * (jerk << ustep);
         actionArr.splice(aIdx+1, 0,
-            {extra: true, pulseCount: Math.floor(accelDist2 * stepsPerMM), pps: ppsJerk});
+            {extra: true, pulseCount: Math.round(accelDist2 * stepsPerMM), pps: ppsJerk});
       }
       if(++aIdx >= actionArr.length) break;
     }
     return true;
   }
+
+  let lastUstepX = null, lastUstepY = null, lastPpsX = null, lastPpsY= null;
 
   let emitPath = (path) => {
     // fill action array with initial values for X
@@ -443,7 +458,13 @@ const MAX_DIST = 1.3;
         emitDelay(X, usecs);
       else {
         // this assumes accel scales with pps, which isn't exact
-        ax.pps = Math.round(ax.pps * (ax.usecs/usecs));
+        ax.pps = ax.pps * (ax.usecs/usecs);
+        if(ax.ustep != lastUstepX) {
+          if(lastPpsX === null) lastPpsX = ax.pps;
+          emitUstep(X, ax.ustep, ax.ustepPulses, lastPpsX);
+        }
+        lastUstepX = ax.ustep;
+        lastPpsX = ax.pps;
         emitVector(X, ax.dir, ax.pulseCount, ax.pps, ax.ustep);
         if(haveExtraX) {
           let dir = ax.dir, ustep = ax.ustep;
@@ -455,7 +476,13 @@ const MAX_DIST = 1.3;
         emitDelay(Y, usecs);
       else {
         // this assumes accel scales with pps, which isn't exact
-        if(ay.usecs <= usecs) ay.pps = Math.round(ay.pps * (ay.usecs/usecs));
+        if(ay.usecs <= usecs) ay.pps = ay.pps * (ay.usecs/usecs);
+        if(ay.ustep != lastUstepY) {
+          if(lastPpsY === null) lastPpsY = ay.pps;
+          emitUstep(Y, ay.ustep, ay.ustepPulses, lastPpsY);
+        }
+        lastUstepY = ay.ustep;
+        lastPpsY = ay.pps;
         emitVector(Y, ay.dir, ay.pulseCount, ay.pps, ay.ustep);
         if(haveExtraY) {
           let dir = ay.dir, ustep = ay.ustep;
