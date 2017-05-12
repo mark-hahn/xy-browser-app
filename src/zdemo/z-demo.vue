@@ -238,35 +238,58 @@ const MAX_DIST = 1.3;
 
   const tgtMmSec     = 100;  // max speed mm/sec
   const imageWid     = 160; // canvas in mm
-  const imageOfsX    = 70;  // in hw ref frame mm
-  const imageOfsY    = 70;
   const fullStepsMM  = 5;
-  const ustepFactor  = 4, ustep = 2;
+  const distUnit     = 32*fullStepsMM;
+  const imageOfsX    = 40 * distUnit;  // 40 mm
+  const imageOfsY    = 40 * distUnit;
+  const scale = ((5.5 * 25.4) * distUnit) / 640; // drawing is 5.5" wide;
   const accel = 2;
-  const pulsesPerMm  = ustepFactor * fullStepsMM;       // 20
-  const tgtPps       = tgtMmSec * pulsesPerMm;          // 1000
-  const tgtUsecs     = pps2usecs(tgtPps);               // 1 ms
-  const pulsesPerPix = (imageWid / 640) * pulsesPerMm;  // 10
-  const pps5mmSec    = 5 * pulsesPerMm;                 // 100
-  const pps10mmSec   = pps5mmSec * 2;                   // 200
-  const jerk         = pps10mmSec;
-  const usecs10mmSec = pps2usecs(pps10mmSec);
+  const jerkMmPerSec = 10;
   const X = 0, Y = 1;
   const fwd = 1, still = 0, bwd = -1;
 
   let exportData = "";
 
-  let accellPulsesTime = (pps1, pps2) => {
+  let emitAccel = () => {
+    exportData += 'a' + accel + '\n';
+  }
+  let emitHome = () => {
+    exportData += 'H\n';
+    return 2e6; // 2 secs to home
+  }
+  let emitLift = () => {
+    exportData += '^\n';
+    return 0.5e6; // half-sec to lift pen
+  }
+  let emitDrop = () => {
+    exportData += 'v\n';
+    return 0.5e6; // half-sec to drop pen
+  }
+  let emitDelay = (axis, usecs) => {
+    exportData += (axis == Y ? 'E' : 'D') + usecs + '\n';
+  }
+  let lastUstep = [null, null];
+  let emitVector = (axis, dir, pulseCount, pps, ustep) => {
+    // pps is uint16_t fixed-point 13.3
+    if(ustep != lastUstep[axis])
+      exportData += 'u' + ustep + '\n';
+    lastUstep[axis] = ustep;
+    pps = Math.floor(pps*8);
+    exportData += (axis == Y ? 'Y' : 'X')  +
+                  (dir == fwd ? 'F' : 'B') + pulseCount + ',' + pps + '\n';
+  }
+
+  let accellPulsesTime = (pps1, pps2, ustep) => {
     if(pps1 == pps2) return [0,0];
     let lastUsecs = pps2usecs(pps1), currentPps = pps1;
     let pulseCount = 0, usecs = 0;
     while(true) {
-      let ppsChange = lastUsecs >> (10 - accel - ustep); // >> 6
+      let ppsChange = Math.floor(lastUsecs >> (10 - accel - ustep));
       if(ppsChange > 327) ppsChange == 327;
       if(pps2 < pps1) {
         // deccelerate
         if(ppsChange == 0 || ppsChange > currentPps || (currentPps - ppsChange) <= pps2)
-          return [pulseCount, lastUsecs];
+          return [pulseCount, usecs];
         else {
           pulseCount++;
           currentPps -= ppsChange;
@@ -288,159 +311,167 @@ const MAX_DIST = 1.3;
     }
   }
 
-  let calcVector = (pix1, pix2, ppsIn, lastDir, endVec, slowDown) => {
-    let pulses = Math.abs(pix2-pix1);
-    let usecs = 0, extraVec = null;
+  // calculate ustep, pulsecount, pps, and usecs for distance and in/out vel
+  // dist is in units of mm from home pos, vel is mm/sec
+  // if pps change cannot be made in given distance, then return null
+  let chkAccelInDist = (dist, vel1, vel2, lastUstep, vecStop) => {
+    let ustep, usecs = 0, extraVec = null;
     let accelPulses = 0, accelUsecs = 0, accelPulses2 = 0, accelUsecs2 = 0;
+    vel1 = Math.max(vel1, jerk);
+    vel2 = Math.max(vel2, jerk);
+    for(ustep = 5; ustep >= 0; ustep--) {
+      if(ustep-1 == lastUstep) ustep--;
+      let pps1 = fullStepsMM * (vel1 << ustep);
+      let pps2 = fullStepsMM * (vel2 << ustep);
+      if(pps1 > 3000 || pps2 > 3000) continue;
 
-    let dir = (pix2 > pix1 ? fwd : bwd);
-    let pps = ((slowDown || lastDir == -dir || pulses == 0) ? pps5mmSec : tgtPps);
+      let ppsJerk = fullStepsMM * (jerk << ustep);
+      let stepsPerMM = fullStepsMM << ustep;
 
-    while(true) {
-       [accelPulses, accelUsecs] = accellPulsesTime(ppsIn, pps);
-       if(endVec) [accelPulses2, accelUsecs2] = accellPulsesTime(pps, pps5mmSec);
-       if((accelPulses + accelPulses2) <= pulses || pps == pps5mmSec) break;
-       pps -= pps5mmSec;
-       if(pps < pps10mmSec) pps = pps5mmSec;
-    }
-    if(pulses == 0) usecs = accelPulses = accelPulses2 = pps = 0;
-    if(pulses == 0 && ppsIn > pps10mmSec || (accelPulses + accelPulses2) > pulses) {
-      // console.log("error: cannot chg pos from", pix1, "to", pix2,
-      //             "with pps from", ppsIn, "to", pps, "in", pulses, "pulses");
-      // debugger;
-      return [null, accelPulses, accelUsecs, accelPulses2, accelUsecs2];
-    }
-    if (pulses > 0)
-      usecs = accelUsecs + (pulses-accelPulses-accelPulses2) * pps2usecs(pps);
-    if(endVec) extraVec = [accelPulses2, pps5mmSec, pps2usecs(pps5mmSec), dir];
-    return [pulses-accelPulses2, pps, usecs, dir, extraVec];
-  }
-
-  let emitSettings = () => {
-    exportData += 'u' + ustep + '\n';  // ustep idx = 2
-    exportData += 'a' + accel + '\n';  // accel = 32
-  }
-  let emitHome = () => {
-    exportData += 'H\n';
-    return 2e6; // 2 secs to home
-  }
-  let emitLift = () => {
-    exportData += '^\n';
-    return 0.5e6; // half-sec to lift pen
-  }
-  let emitDrop = () => {
-    exportData += 'v\n';
-    return 0.5e6; // half-sec to drop pen
-  }
-
-  let emitVectorOrDelay = (action) => {
-    let [type, axis, pps, dir, usecs, pulseCount] = action;
-    if(type == 'delay')
-      exportData += (axis == Y ? 'E' : 'D') + usecs + '\n';
-    else {
-      // pps is uint16_t fixed-point 13.3
-      pps = Math.floor(pps*8);
-      exportData += (axis == Y ? 'Y' : 'X')  +
-                    (dir == fwd ? 'F' : 'B') + pulseCount + ',' + pps + '\n';
-    }
-  }
-
-  let planMotorPath = (path) => {
-    let actions = [];
-    let ppsX = pps10mmSec, lastDirX = still;
-    let ppsY = pps10mmSec, lastDirY = still;
-    let slowDown = false;
-
-    for(let i=0; i < path.length-2; i += 2) {
-      let x1 = path[i], y1 = path[i+1], x2 = path[i+2], y2 = path[i+3];
-      if(i == 0 && x1 < 0) {
-        x1 = y1 = 0; // special case for starting from home
-        lastDirX = lastDirY = fwd;
-      } else {
-        x1 = (639 - x1) * pulsesPerPix + imageOfsX * pulsesPerMm;
-        y1 =        y1  * pulsesPerPix + imageOfsY * pulsesPerMm;
+      [accelPulses, accelUsecs] = accellPulsesTime(pps1, pps2, ustep);
+      let accelDist = accelPulses / stepsPerMM, accelDist2 = 0;
+      if(vecStop) {
+        [accelPulses2, accelUsecs2] = accellPulsesTime(pps2, ppsJerk, ustep);
+        accelDist2 = accelPulses2 / stepsPerMM;
       }
-      x2 = (639 - x2) * pulsesPerPix + imageOfsX * pulsesPerMm;
-      y2 =        y2  * pulsesPerPix + imageOfsY * pulsesPerMm;
-
-      // pixels are now in units of pulses from home
-      let pulsesX, usecsX, dirX, extraVecX;
-      [pulsesX, ppsX, usecsX, dirX, extraVecX] =
-             calcVector (x1, x2, ppsX, lastDirX, i == path.length-4, slowDown);
-
-      let pulsesY, usecsY, dirY, extraVecY;
-      [pulsesY, ppsY, usecsY, dirY, extraVecY] =
-             calcVector (y1, y2, ppsY, lastDirY, i == path.length-4, slowDown);
-
-      // if vector failed, then go back in path and try again at minimal pps
-      if(pulsesX == null || pulsesY == null) {
-        if (i < 2) {
-          console.log("motor planning failed for path:", path);
-          debugger;
-          return -1;
-        }
-        i -= 4;      // 2 will be added to i at continue
-        if (i < 0) { // before first vec
-          ppsX = pps10mmSec; lastDirX = still;
-          ppsY = pps10mmSec; lastDirY = still;
-        }
-        else {
-          ppsX = actions[i  ][2]; lastDirX = actions[i  ][3];
-          ppsY = actions[i+1][2]; lastDirY = actions[i+1][3];
-        }
-        actions.length = i + 2;
-        slowDown = true;
+      if((accelDist + accelDist2 <= dist) {
+        if(vecStop) extraVec = [accelDist2, accelUsecs2];
+        return [accelDist, accelUsecs, ustep, vel2, extraVec];
+      }
+    }
+    if(vecStop) {
+      vel2 -= jerk;
+      if(vel2 >= jerk) {
+        ustep = 6;
         continue;
       }
-      slowDown = false;
-      let vecCount = 0;
-      // loops once except for twice when end vec
-      while(true) {
-        let usecs = Math.max(usecsX, usecsY);
-        if(pulsesX == 0)
-          actions[actions.length] = ['delay', X, pps5mmSec, dirX, usecs, 0];
-        else {
-          // this assumes accel scales with pps, which isn't exact
-          if(usecsX < usecs) ppsX = Math.round(ppsX * (usecsX/usecs));
-          actions[actions.length] = ['vec', X, ppsX, dirX, usecs, pulsesX];
-        }
-        if(pulsesY == 0)
-          actions[actions.length] = ['delay', Y, pps5mmSec, dirY, usecs, 0];
-        else {
-          if(usecsY < usecs) ppsY = Math.round(ppsY * (usecsY/usecs));
-          actions[actions.length] = ['vec', Y, ppsY, dirY, usecs, pulsesY];
-        }
-        if(++vecCount < 2 && extraVecX) {
-          [pulsesX, ppsX, usecsX, dirX] = extraVecX;
-          [pulsesY, ppsY, usecsY, dirY] = extraVecY;
-          continue;
-        }
-        break;
-      }
-      lastDirX = dirX;
-      lastDirY = dirY;
     }
+    return null;
+  }
+
+  let planAxis = (actionArr) => {
+    let lastUstep = null, usecs = 0,
+    for(let aIdx = 0; aIdx < actionArr.length;) {
+      let a = actionArr[aIdx];
+      if(a.vel == 0) {aIdx++; continue;}
+
+      let vecStop = (aIdx == actionArr.length-1 || actionArr[aIdx+1].vel == 0);
+      let dir = ((a.pos2 - a.pos1) >= 0 ? fwd : bwd);
+      let dist = Math.abs(a.pos2 - a.pos1);
+      let lastVel   = (aIdx == 0 ? 0    : actionArr[aIdx-1].vel);
+      let lastUstep = (aIdx == 0 ? null : actionArr[aIdx-1].ustep);
+
+      let chk = chkAccelInDist(dist, lastVel, a.vel, lastUstep, vecStop);
+      if(!chk) {
+        if(aIdx == 0 || actionArr[aIdx-1].vel == 0) {
+          console.log("failed to process action array at:", aIdx, actionArr);
+          debugger;
+          return false;
+        }
+        let curVel = (a.vel == 0 ? jerk : a.vel);
+        a = actionArr[--aIdx];
+        a.vel = (a.vel + curVel) / 2;
+        continue; // restart at previous vec with new closer velocity
+      }
+      let [accelDist, accelUsecs, ustep, vel, extraVec] = chk;
+      if(vecStop) [accelDist2, accelUsecs2] = extraVec;
+      else accelDist2 = accelUsecs2 = 0;
+
+      let stepsPerMM = fullStepsMM << ustep;
+      let nonAccelDist = dist - accelDist - accelDist2;
+      a.usecs = accelUsecs + accelUsecs2 + (nonAccelDist * vel * 1e6);
+      a.ustep = ustep;
+      a.pulseCount = Math.round(nonAccelDist * stepsPerMM);
+      a.pps = Math.round(vel * stepsPerMM);
+      if(vecStop) {
+        let ppsJerk = fullStepsMM * (jerk << ustep);
+        actionArr.splice(aIdx, 0,
+            {extra: true, ustep,
+             pulseCount: Math.floor(accelDist2 * stepsPerMM),
+             pps: ppsJerk});
+      }
+      if(++aIdx >= actionArr.length) break;
+    }
+    return true;
+  }
+
+  let emitPath = (path) => {
+    // fill action array with initial values for X
+    let lastDir = still, actionIdx=0, actionX = [];
+    for(let pathIdx=0; pathIdx < path.length; pathIdx+=2) {
+      let x1 = path[pathIdx], x2 = path[pathIdx+2];
+      x1 = (639 - x1) * scale + imageOfsX;
+      x2 = (639 - x2) * scale + imageOfsX;
+      if(x1 != x2)
+        actionX[actionIdx++] = {pos1: x1, pos2: x2, vel: tgtMmSec};
+      else
+        actionX[actionIdx++] = {vel: 0};
+    }
+    if(!planAxis(actionX)) return -1;
+
+    // fill action array with initial values for Y
+    let actionY = []; lastDir = still; actionIdx=0;
+    for(let pathIdx=0; pathIdx < path.length; pathIdx+=2) {
+      let y1 = path[pathIdx+1], y2 = path[pathIdx+3];
+      y1 = y1 * scale + imageOfsY;
+      y2 = y2 * scale + imageOfsY;
+      actionY[actionIdx++] = {pos1: y1, pos2: y2, pps: tgtPps};
+    }
+    if(!planAxis(actionY)) return -1;
+
     let pathUsecs = 0;
-    for(let action of actions) {
-      emitVectorOrDelay(action);
-      if(action[1] == X) pathUsecs += action[4];
+    let xIdx = 0, yIdx = 0;
+    while(actionX[xIdx]) {
+      let ax = actionX[xIdx];
+      let ay = actionY[yIdx];
+      let haveExtraX = (actionX[xIdx+1] && actionX[xIdx+1].extra);
+      let haveExtraY = (actionY[yIdx+1] && actionY[yIdx+1].extra);
+
+      let usecs = Math.max(ax.usecs, ay.usecs);
+      pathUsecs += usecs;
+      if(ax.pulseCount == 0)
+        emitDelay(X, ax.usecs);
+      else {
+        // this assumes accel scales with pps, which isn't exact
+        if(ax.usecs <= usecs) ax.pps = Math.round(ax.pps * (ax.usecs/usecs));
+        emitVector(X, ax.dir, ax.pulseCount, ax.pps, ax.ustep);
+        if(haveExtraX) {
+          let dir = ax.dir, ustep = ax.ustep;
+          ax = actionX[xIdx+1];
+          emitVector(X, dir, ax.pulseCount, ax.pps, ustep);
+        }
+      }
+      if(ay.pulseCount == 0)
+        emitDelay(X, ay.usecs);
+      else {
+        // this assumes accel scales with pps, which isn't exact
+        if(ay.usecs <= usecs) ay.pps = Math.round(ay.pps * (ay.usecs/usecs));
+        emitVector(Y, ay.dir, ay.pulseCount, ay.pps, ay.ustep);
+        if(haveExtraY) {
+          let dir = ay.dir, ustep = ay.ustep;
+          ay = actionY[yIdx+1];
+          emitVector(X, dir, ay.pulseCount, ay.pps, ustep);
+        }
+      }
+      xIdx++; if(haveExtraX) xIdx++;
+      yIdx++; if(haveExtraY) yIdx++;
     }
     return pathUsecs;
   }
 
   let exportDrawing = () => {
-    emitSettings();
+    emitAccel();
     let usecs = 0;
     usecs += emitHome();
     // -1 is special code for starting at home
-    let lastX = -1, lastY = -1;
+    let lastX = 0, lastY = 0;
     for(let path of paths)  {
-      let planUsecs = planMotorPath([lastX, lastY, path[0], path[1]]);
+      let planUsecs = emitPath([lastX, lastY, path[0], path[1]]);
       if (planUsecs == -1) break;
       usecs += planUsecs;
 
       usecs += emitDrop();
-      planUsecs = planMotorPath(path);
+      planUsecs = emitPath(path);
       if (planUsecs == -1) {
         usecs += emitLift();
         break;
