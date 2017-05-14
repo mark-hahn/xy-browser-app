@@ -168,6 +168,8 @@
           v-on:mouseout="delMouseout"
           width="640" height="480"></canvas>
     </div>
+    <!-- debug -->
+    <canvas id="canvas2" width="640" height="480" style="margin-top:40px"></canvas>
   </div>
 </template>
 
@@ -186,6 +188,21 @@
   const CYAN   = 0xffffff00;
   const BLACK  = 0xff000000;
   const WHITE  = 0xffffffff;
+
+  const tgtMmSec     = 100;  // max speed mm/sec
+  const imageWid     = 120; // canvas in mm
+  const fullStepsMM  = 5;
+  const distUnit     = 32*fullStepsMM;
+  const imageOfsX    = 0;//60 * distUnit;  // 40 mm
+  const imageOfsY    = 0;//40 * distUnit;
+  const scale = 1;//Math.floor(((2 * 25.4) * distUnit) / 640); // drawing is 5.5" wide
+  const accel = 2;
+  const jerk  = 10;
+  const maxPps = 3000;
+  const X = 0, Y = 1;
+  const fwd = 1, still = 0, bwd = -1;
+
+  let pps2usecs = (pps => Math.round(1e6/pps));
 
   var video, canvas, ctx, img_u8, imageData,
       lines = [], lineCnt = 0, lineTooSmall = [], lineIdx = [],
@@ -234,46 +251,100 @@ const MAX_DIST = 1.3;
       bisectLine(path, line, maxIdx, rgtIdx);
     }
   }
-  let pps2usecs = (pps => Math.round(1e6/pps));
-
-  const tgtMmSec     = 100;  // max speed mm/sec
-  const imageWid     = 160; // canvas in mm
-  const fullStepsMM  = 5;
-  const distUnit     = 32*fullStepsMM;
-  const imageOfsX    = 40 * distUnit;  // 40 mm
-  const imageOfsY    = 40 * distUnit;
-  const scale = Math.floor(((5.5 * 25.4) * distUnit) / 640); // drawing is 5.5" wide
-  const accel = 2;
-  const jerk  = 10;
-  const maxPps = 3000;
-  const X = 0, Y = 1;
-  const fwd = 1, still = 0, bwd = -1;
 
   let exportData = "";
+
+  let ctx2Scale = 1, ctx2QueueX = [], ctx2QueueY = [];
+  let ctx2, ctx2UstepX, ctx2UstepY, ctx2PosX, ctx2PosY, ctx2Down = false;
+
+  let resetCtx2 = () => {
+    ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
+    ctx2PosX = 300; ctx2PosY = 150;
+  }
 
   let emitAccel = () => {
     exportData += 'A' + accel + '\n';
   }
   let emitHome = () => {
     exportData += 'H\n';
-    return 2e6; // 2 secs to home
+    ctx2Down = false;
+    resetCtx2();
+    return 5e6; // 2 secs to home
   }
   let emitLift = () => {
     exportData += '^\n';
+    ctx2Down = false;
     return 0.5e6; // half-sec to lift pen
   }
   let emitDrop = () => {
     exportData += 'v\n';
+    ctx2Down = true;
     return 0.5e6; // half-sec to drop pen
   }
   let emitDelay = (axis, usecs) => {
+    console.log('delay', axis, usecs);
+    if(axis == X)
+      ctx2QueueX.push([usecs]);
+    else
+      ctx2QueueY.push([usecs]);
     exportData += (axis == X ? 'D' : 'E') + Math.round(usecs) + '\n';
   }
   let emitUstep = (axis, ustep, pulseCount, pps) => {
+    let vel =  (pulseCount > 0 ? pps : 0);
+    console.log('ustep', axis, ustep, pulseCount, Math.round(vel));
+    if(axis == X) ctx2UstepX = ustep;
+    if(axis == Y) ctx2UstepY = ustep;
     exportData += (axis == X ? 'U' : 'V') + ustep + ',' +
-                   pulseCount + ',' + Math.round(pps*8) + '\n';
+                   pulseCount + ',' + Math.round(vel*8) + '\n';
   }
+  let chkTime = () => {
+    while(ctx2QueueX.length > 0 && ctx2QueueY.length > 0) {
+      let [durationX, dirX, pulseCountX, ppsX] = ctx2QueueX[0];
+      let [durationY, dirY, pulseCountY, ppsY] = ctx2QueueY[0];
+
+      let timePassed = Math.min(durationX, durationY);
+      ctx2QueueX[0][0] -= timePassed;
+      ctx2QueueY[0][0] -= timePassed;
+
+      let pulsesPassedX = (pulseCountX ? Math.round(timePassed * ppsX / 1e6) : 0);
+      let pulsesPassedY = (pulseCountY ? Math.round(timePassed * ppsY / 1e6) : 0);
+      ctx2QueueX[0][2] -= pulsesPassedX;
+      ctx2QueueY[0][2] -= pulsesPassedY;
+
+      let oldPosX = ctx2PosX;
+      let oldPosY = ctx2PosY;
+      let distX = (pulsesPassedX / (5 << ctx2UstepX)) * distUnit * ctx2Scale;
+      let distY = (pulsesPassedY / (5 << ctx2UstepY)) * distUnit * ctx2Scale;
+      ctx2PosX += (dirX == fwd ?  distX : -distX);
+      ctx2PosY += (dirY == fwd ?  distY : -distY);
+
+      if(ctx2Down) {
+        ctx2.beginPath();
+        ctx2.fillStyle   = 'black';
+        ctx2.strokeStyle = 'black';
+        ctx2.lineWidth = 1;
+        ctx2.moveTo(oldPosX, oldPosY);
+        ctx2.lineTo(ctx2PosX, ctx2PosY);
+        ctx2.stroke();
+      }
+      if((!isNaN(ctx2QueueX[0][2]) && ctx2QueueX[0][2] <= 0) ||
+                (ctx2QueueX[0][0] <= 0))
+        ctx2QueueX.shift();
+
+      if((!isNaN(ctx2QueueY[0][2]) && ctx2QueueY[0][2] <= 0) ||
+                (ctx2QueueY[0][0] <= 0))
+        ctx2QueueY.shift();
+    }
+  }
+
   let emitVector = (axis, dir, pulseCount, pps) => {
+    console.log('move', axis, dir, pulseCount, Math.round(pps));
+    let duration = (pulseCount / pps) * 1e6;
+    if(axis == X)
+      ctx2QueueX.push([duration, dir, pulseCount, pps]);
+    else
+      ctx2QueueY.push([duration, dir, pulseCount, pps]);
+    chkTime();
     // pps is uint16_t fixed-point 13.3
     exportData += (axis == X ? 'X' : 'Y')  +
                   (dir == fwd ? 'F' : 'B') + pulseCount + ',' +
@@ -331,7 +402,11 @@ const MAX_DIST = 1.3;
       if(ustep < lastUstep) {
         let lastDistPerPulse = (1 << (5-lastUstep));
         while(((x1 + ustepDist) & (0x1f >> ustep)) != 0) {
-          ustepPulses++;
+          if(++ustepPulses > 31) {
+            debugger;
+            ustepPulses = ustepUsecs = 0;
+            break;
+          }
           ustepDist = ustepPulses * lastDistPerPulse;
           if(x2 < x1) ustepDist = -ustepDist;
           ustepUsecs = ustepPulses * pps2usecs(pps1);
@@ -340,15 +415,16 @@ const MAX_DIST = 1.3;
       let ppsJerk = fullStepsMM * (jerk << ustep);
       let stepsPerMM = fullStepsMM << ustep;
       [accelPulses, accelUsecs] = accelPulsesTime(pps1, pps2, ustep);
-      let accelDist = accelPulses / stepsPerMM, accelDist2 = 0;
+      let accelDist = accelPulses * distUnit / stepsPerMM, accelDist2 = 0;
       if(vecStop) {
         [accelPulses2, accelUsecs2] = accelPulsesTime(pps2, ppsJerk, ustep);
-        accelDist2 = accelPulses2 / stepsPerMM;
+        accelDist2 = accelPulses2 * distUnit / stepsPerMM;
       }
-      if(ustepDist + accelDist + accelDist2 <= dist) {
-        return [ustepPulses, ustepDist, ustepUsecs,
-                accelDist,  accelUsecs, ustep, vel2,
-                accelDist2, accelUsecs2];
+      if(ustepDist + accelDist + accelDist2 < dist) {
+        return [ustep, vel2,
+                ustepPulses, ustepDist,  ustepUsecs,
+                accelPulses, accelDist,  accelUsecs,
+                accelPulses2,accelDist2, accelUsecs2];
       }
       // failed to fit change in dist, try slower velocity
       vel2 -= jerk;
@@ -383,23 +459,20 @@ const MAX_DIST = 1.3;
         a.vel = (a.vel + curVel) / 2;
         continue; // restart at previous vec with new closer velocity
       }
-      let  [ustepPulses, ustepDist, ustepUsecs,
-            accelDist,  accelUsecs, ustep, vel,
-            accelDist2, accelUsecs2] = chk;
+      let [ustep, vel,
+           ustepPulses, ustepDist,  ustepUsecs,
+           accelPulses, accelDist,  accelUsecs,
+           accelPulses2,accelDist2, accelUsecs2] = chk;
 
       let stepsPerMM = fullStepsMM << ustep;
-      let nonAccelDist = dist - ustepDist - accelDist - accelDist2;
-      a.usecs = ustepUsecs + accelUsecs + accelUsecs2 +
-                (nonAccelDist / (distUnit*vel)) * 1e6;
+      a.usecs       = accelUsecs + (((dist - accelDist)/distUnit) / vel) * 1e6;
       a.ustep       = ustep;
-      a.pulseCount  = Math.round((nonAccelDist/distUnit) * stepsPerMM);
+      a.pulseCount  = Math.round((dist/distUnit) * stepsPerMM);
       a.pps         = vel * stepsPerMM;
       a.ustepPulses = ustepPulses;
-      if(accelDist2) {
-        let ppsJerk = fullStepsMM * (jerk << ustep);
+      if(accelDist2)
         actionArr.splice(aIdx+1, 0,
-            {extra: true, pulseCount: Math.round(accelDist2 * stepsPerMM), pps: ppsJerk});
-      }
+                         {extra: true, pulseCount: accelPulses2, pps: stepsPerMM * jerk});
       if(++aIdx >= actionArr.length) break;
     }
     return true;
@@ -413,8 +486,8 @@ const MAX_DIST = 1.3;
     for(let pathIdx=0; pathIdx < path.length-2; pathIdx += 2) {
       let x1 = path[pathIdx], x2 = path[pathIdx+2];
       if(x1 == -1) x1 = 0;
-      else x1 = (639 - x1) * scale + imageOfsX;
-      x2 = (639 - x2) * scale + imageOfsX;
+      else x1 = x1 * scale + imageOfsX;
+      x2 = x2 * scale + imageOfsX;
       let dir = ((x2 - x1) > 0 ? fwd : bwd);
       if(x1 == x2)
         actionX[actionIdx++] = {vel: 0, usecs:0};
@@ -570,6 +643,8 @@ const MAX_DIST = 1.3;
     mounted: function () {
       video  = document.getElementById('webcam');
       canvas = document.getElementById('canvas');
+      let canvas2 = document.getElementById('canvas2');
+      ctx2 = canvas2.getContext('2d');
       try {
         compatibility.getUserMedia({video: true}, (stream) => {
           try {
