@@ -189,16 +189,17 @@
   const BLACK  = 0xff000000;
   const WHITE  = 0xffffffff;
 
-  const tgtMmSec     = 100;  // max speed mm/sec
-  const imageWid     = 120; // canvas in mm
   const fullStepsMM  = 5;
   const distUnit     = 32*fullStepsMM;
-  const imageOfsX    = 0;//60 * distUnit;  // 40 mm
-  const imageOfsY    = 0;//40 * distUnit;
-  const scale = 1;//Math.floor(((2 * 25.4) * distUnit) / 640); // drawing is 5.5" wide
+  const imageOfsX    = 60 * distUnit; // 60 mm
+  const imageOfsY    = 40 * distUnit;
+
+  const tgtMmSec     = 100; // max speed mm/sec
+  const scale        = ((5.5 * 25.4) * distUnit) / 640; // drawing is 5.5" wide
   const accel = 2;
   const jerk  = 10;
   const maxPps = 3000;
+
   const X = 0, Y = 1;
   const fwd = 1, still = 0, bwd = -1;
 
@@ -254,7 +255,7 @@ const MAX_DIST = 1.3;
 
   let exportData = "";
 
-  let ctx2Scale = 1, ctx2QueueX = [], ctx2QueueY = [];
+  let ctx2Scale = 0.5, ctx2QueueX = [], ctx2QueueY = [];
   let ctx2, ctx2UstepX, ctx2UstepY, ctx2PosX, ctx2PosY, ctx2Down = false;
 
   let resetCtx2 = () => {
@@ -268,7 +269,6 @@ const MAX_DIST = 1.3;
   let emitHome = () => {
     exportData += 'H\n';
     ctx2Down = false;
-    resetCtx2();
     return 5e6; // 2 secs to home
   }
   let emitLift = () => {
@@ -313,8 +313,8 @@ const MAX_DIST = 1.3;
 
       let oldPosX = ctx2PosX;
       let oldPosY = ctx2PosY;
-      let distX = (pulsesPassedX / (5 << ctx2UstepX)) * distUnit * ctx2Scale;
-      let distY = (pulsesPassedY / (5 << ctx2UstepY)) * distUnit * ctx2Scale;
+      let distX = (pulsesPassedX * distUnit / (5 << ctx2UstepX)) * ctx2Scale;
+      let distY = (pulsesPassedY * distUnit / (5 << ctx2UstepY)) * ctx2Scale;
       ctx2PosX += (dirX == fwd ?  distX : -distX);
       ctx2PosY += (dirY == fwd ?  distY : -distY);
 
@@ -383,55 +383,58 @@ const MAX_DIST = 1.3;
     }
   }
 
+  let pulses2dist = (pulses, ustep) => (pulses * distUnit) / (fullStepsMM << ustep);
+  let vel2pps     =     (vel,ustep) => fullStepsMM * (vel << ustep);
+
   // calculate ustep, pulsecount, pps, and usecs for distance and in/out vel
-  // dist is mm, vel is mm/sec
+  // dist is in mm*160 units, vel is mm/sec
   // if pps change cannot be made in given distance, then return null
-  let chkAccelInDist = (x1, x2, vel1, vel2, lastUstep, vecStop) => {
-    let dist = Math.abs(x2-x1);
+  let chkAccelInDist = (pos1, pos2, vel1, vel2, lastUstep, vecStop) => {
+    if(lastUstep !== undefined) pos1 = pos1 & ~(0x1f >> lastUstep);
+    let dist = Math.abs(pos2-pos1);
+    let dir = (pos2 > pos1 ? fwd : bwd);
+    let lastDistPerPulse = (1 << (5-lastUstep));
+
     let accelPulses = 0, accelUsecs = 0, accelPulses2 = 0, accelUsecs2 = 0;
     vel1 = Math.max(vel1, jerk);
     vel2 = Math.max(vel2, jerk);
 
-    for(let ustep = 5; ustep >= 0; ustep--) {
+    for(let ustep = 5; ustep >= 0 && vel2 >= jerk; ustep--) {
+      let ppsJerk = vel2pps(jerk, ustep);
       if(ustep == lastUstep+1) ustep--;
-      let pps1 = fullStepsMM * (vel1 << ustep);
-      let pps2 = fullStepsMM * (vel2 << ustep);
+      let pps1 = vel2pps(vel1, ustep);
+      let pps2 = vel2pps(vel2, ustep);
       if(pps1 > maxPps || pps2 > maxPps) continue;
+
       // check if new ustep is compatible with old
       let ustepPulses = 0, ustepDist = 0, ustepUsecs = 0;
       if(ustep < lastUstep) {
-        let lastDistPerPulse = (1 << (5-lastUstep));
-        while(((x1 + ustepDist) & (0x1f >> ustep)) != 0) {
+        while(((pos1 + ustepDist) & (0x1f >> ustep)) != 0) {
           if(++ustepPulses > 31) {
             debugger;
-            ustepPulses = ustepUsecs = 0;
+            ustepPulses = ustepUsecs = ustepDist= 0;
             break;
           }
-          ustepDist = ustepPulses * lastDistPerPulse;
-          if(x2 < x1) ustepDist = -ustepDist;
-          ustepUsecs = ustepPulses * pps2usecs(pps1);
+          ustepDist = dir * ustepPulses * lastDistPerPulse;
         }
+        ustepUsecs = ustepPulses * pps2usecs(pps1);
       }
-      let ppsJerk = fullStepsMM * (jerk << ustep);
-      let stepsPerMM = fullStepsMM << ustep;
       [accelPulses, accelUsecs] = accelPulsesTime(pps1, pps2, ustep);
-      let accelDist = accelPulses * distUnit / stepsPerMM, accelDist2 = 0;
+      let accelDist = pulses2dist(accelPulses, ustep);
+      let accelDist2 = 0;
       if(vecStop) {
         [accelPulses2, accelUsecs2] = accelPulsesTime(pps2, ppsJerk, ustep);
-        accelDist2 = accelPulses2 * distUnit / stepsPerMM;
+        accelDist2 = pulses2dist(accelPulses2, ustep);
       }
       if(ustepDist + accelDist + accelDist2 < dist) {
-        return [ustep, vel2,
+        let adjPos2 = (pos1 + dir * dist) & ~(0x1f >> ustep);
+        return [ustep, pos1, adjPos2, vel2,
                 ustepPulses, ustepDist,  ustepUsecs,
                 accelPulses, accelDist,  accelUsecs,
                 accelPulses2,accelDist2, accelUsecs2];
       }
       // failed to fit change in dist, try slower velocity
       vel2 -= jerk;
-      if(vel2 >= jerk) {
-        ustep = 6;
-        continue;
-      }
     }
     return null;
   }
@@ -444,31 +447,44 @@ const MAX_DIST = 1.3;
       let vecStop = aIdx == actionArr.length-1 || actionArr[aIdx+1].vel == 0 ||
                                                   actionArr[aIdx+1].dir != a.dir;
       let dist = Math.abs(a.pos2 - a.pos1);
+      let dir = (a.pos2 > a.pos1 ? fwd : bwd);
       let lastVel   = (aIdx == 0 ? 0    : actionArr[aIdx-1].vel);
       let lastUstep = (aIdx == 0 ? null : actionArr[aIdx-1].ustep);
 
       let chk = chkAccelInDist(a.pos1, a.pos2, lastVel, a.vel, lastUstep, vecStop);
       if(!chk) {
         if(aIdx == 0 || actionArr[aIdx-1].vel == 0) {
-          console.log("failed to process action array at:", aIdx, actionArr);
+          // cannot go back any further to adjust vel
+          console.log("process action error, cannot go back:", aIdx, actionArr);
           debugger;
           return false;
         }
-        let curVel = (a.vel == 0 ? jerk : a.vel);
         a = actionArr[--aIdx];
-        a.vel = (a.vel + curVel) / 2;
+        a.vel -= jerk;
+        if(a.vel < jerk) {
+          // cannot go back any further to adjust vel
+          console.log("unable to fix action array by adjusting vel:", aIdx, actionArr);
+          debugger;
+          return false;
+        }
         continue; // restart at previous vec with new closer velocity
       }
-      let [ustep, vel,
+      let [ustep, adjPos1, adjPos2, vel2,
            ustepPulses, ustepDist,  ustepUsecs,
            accelPulses, accelDist,  accelUsecs,
            accelPulses2,accelDist2, accelUsecs2] = chk;
-
+      a.pos1 = adjPos1;
+      a.pos2 = adjPos2;
+      if(aIdx < actionArr.length - 1)
+          actionArr[aIdx+1].pos1 = adjPos2;
+      dist = Math.abs(a.pos2- a.pos1);
       let stepsPerMM = fullStepsMM << ustep;
-      a.usecs       = accelUsecs + (((dist - accelDist)/distUnit) / vel) * 1e6;
+      let flatDist  = dist - ustepDist - accelDist - accelDist2;
+      a.usecs       = ustepUsecs + accelUsecs +
+                      (((flatDist/distUnit) / vel2) * 1e6) + accelUsecs2;
       a.ustep       = ustep;
-      a.pulseCount  = Math.round((dist/distUnit) * stepsPerMM);
-      a.pps         = vel * stepsPerMM;
+      a.pulseCount  = Math.round((dist / distUnit) * stepsPerMM);
+      a.pps         = vel2 * stepsPerMM;
       a.ustepPulses = ustepPulses;
       if(accelDist2)
         actionArr.splice(aIdx+1, 0,
@@ -481,13 +497,14 @@ const MAX_DIST = 1.3;
   let lastUstepX = null, lastUstepY = null, lastPpsX = null, lastPpsY= null;
 
   let emitPath = (path) => {
+    resetCtx2();
     // fill action array with initial values for X
     let lastDir = still, actionIdx=0, actionX = [];
     for(let pathIdx=0; pathIdx < path.length-2; pathIdx += 2) {
       let x1 = path[pathIdx], x2 = path[pathIdx+2];
       if(x1 == -1) x1 = 0;
-      else x1 = x1 * scale + imageOfsX;
-      x2 = x2 * scale + imageOfsX;
+      else x1 = Math.round(x1 * scale) + imageOfsX;
+      x2 = Math.round(x2 * scale) + imageOfsX;
       let dir = ((x2 - x1) > 0 ? fwd : bwd);
       if(x1 == x2)
         actionX[actionIdx++] = {vel: 0, usecs:0};
@@ -504,8 +521,8 @@ const MAX_DIST = 1.3;
     for(let pathIdx=0; pathIdx < path.length-2; pathIdx += 2) {
       let y1 = path[pathIdx+1], y2 = path[pathIdx+3];
       if(y1 == -1) y1 = 0;
-      else y1 = y1 * scale + imageOfsY;
-      y2 = y2 * scale + imageOfsY;
+      else y1 =  Math.round(y1 * scale) + imageOfsY;
+      y2 = Math.round(y2 * scale) + imageOfsY;
       let dir = ((y2 - y1) > 0 ? fwd : bwd);
       if(y1 == y2)
         actionY[actionIdx++] = {vel: 0, usecs:0};
@@ -575,9 +592,9 @@ const MAX_DIST = 1.3;
     usecs += emitHome();
     // -1 is special code for starting at home
     let lastX = -1, lastY = -1;
-    let pathCount = paths.length;
+    let pathCount = 0;
     for(let path of paths)  {
-      // console.log("pathCount", pathCount--);
+      if(++pathCount == 10) break;
       let planUsecs = emitPath([lastX, lastY, path[0], path[1]]);
       if (planUsecs == -1) break;
       usecs += planUsecs;
